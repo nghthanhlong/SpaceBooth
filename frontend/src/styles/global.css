@@ -1,0 +1,80 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #f8fafc;
+  font-family: system-ui, sans-serif;
+}
+
+.app-shell {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+h1 {
+  color: #c4b5fd;
+  text-align: center;
+}
+
+.camera-status {
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.camera-stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #020617;
+}
+
+.camera-layer,
+.overlay-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.camera-layer {
+  z-index: 1;
+}
+
+.overlay-layer {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.camera-message {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  background: #020617;
+}
+
+button {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 10px;
+  background: #c4b5fd;
+  color: #0f172a;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 3px solid #facc15;
+  outline-offset: 4px;
+}
