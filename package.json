@@ -1,0 +1,13 @@
+{
+    "name": "spacebooth-monorepo",
+    "private": true,
+    "scripts": {
+        "dev": "npm --workspace frontend run dev",
+        "build": "npm --workspace cv-module run typecheck && npm --workspace frontend run build",
+        "setup": "npm --workspace cv-module run setup"
+    },
+    "workspaces": [
+        "frontend",
+        "cv-module"
+    ]
+}
