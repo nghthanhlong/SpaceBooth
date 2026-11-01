@@ -31,6 +31,7 @@ h1 {
   overflow: hidden;
   border-radius: 16px;
   background: #020617;
+  isolation: isolate;
 }
 
 .camera-layer,
@@ -49,6 +50,28 @@ h1 {
 .overlay-layer {
   z-index: 2;
   pointer-events: none;
+}
+
+.camera-photo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #475569;
+  border-radius: 14px;
+  background: #1e293b;
+}
+
+.camera-photo-count {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.camera-photo-actions .save-album-button {
+  background: #10b981;
 }
 
 .camera-message {
@@ -77,4 +100,118 @@ button {
 button:focus-visible {
   outline: 3px solid #facc15;
   outline-offset: 4px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.photo-controls,
+.saved-albums {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  background: #1e293b;
+}
+
+.photo-controls h2,
+.saved-albums h2 {
+  margin: 0 0 8px;
+  color: #f8fafc;
+}
+
+.photo-controls > p,
+.saved-albums-heading p,
+.album-card time {
+  color: #cbd5e1;
+}
+
+.saved-albums-heading button {
+  background: #10b981;
+}
+
+.photo-feedback {
+  margin-top: 14px;
+  color: #fde68a;
+  overflow-wrap: anywhere;
+}
+
+.captured-photos,
+.album-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.captured-photos {
+  justify-content: center;
+}
+
+.captured-photos img,
+.album-photos img {
+  display: block;
+  width: 120px;
+  aspect-ratio: 1;
+  border: 2px solid #64748b;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.saved-albums-heading,
+.album-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.saved-albums-heading button {
+  flex: 0 0 auto;
+}
+
+.album-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.album-card {
+  padding: 16px;
+  border-radius: 12px;
+  background: #0f172a;
+}
+
+.album-card h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.album-card time {
+  flex: 0 0 auto;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 600px) {
+  .photo-controls,
+  .saved-albums {
+    padding: 16px;
+  }
+
+  .camera-photo-actions {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .camera-photo-actions button {
+    padding: 9px 12px;
+  }
+
+  .saved-albums-heading,
+  .album-card-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }

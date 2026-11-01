@@ -4,7 +4,9 @@
     "scripts": {
         "dev": "npm --workspace frontend run dev",
         "build": "npm --workspace cv-module run typecheck && npm --workspace frontend run build",
-        "setup": "npm --workspace cv-module run setup"
+        "setup": "npm --workspace cv-module run setup",
+        "dev:cv": "npm --workspace cv-module run dev",
+        "dev:all": "start cmd /c npm --workspace cv-module run dev && npm --workspace frontend run dev"
     },
     "workspaces": [
         "frontend",

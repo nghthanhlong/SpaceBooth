@@ -1,5 +1,16 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  serverTimestamp,
+  doc,
+  updateDoc,
+  getDocs,
+  query,
+  orderBy,
+  limit,
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -72,4 +83,18 @@ export const updateSelectedPhotos = async (sessionDocId, selectedUrls) => {
     console.error("Lỗi cập nhật ảnh đã chọn:", error);
     return { success: false, error: error.message };
   }
+};
+
+export const getPhotoSessions = async () => {
+  const sessionsQuery = query(
+    collection(db, "sessions"),
+    orderBy("createdAt", "desc"),
+    limit(20),
+  );
+  const snapshot = await getDocs(sessionsQuery);
+
+  return snapshot.docs.map((sessionDoc) => ({
+    id: sessionDoc.id,
+    ...sessionDoc.data(),
+  }));
 };
