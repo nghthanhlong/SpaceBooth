@@ -7,6 +7,8 @@ import useStickers from "../hooks/useStickers";
 import { FRAMES } from "../data/frames";
 import { STICKERS } from "../data/stickers";
 import "../styles/stickers.css";
+import BoothIcon from "../components/layout/BoothIcon";
+import "../styles/booth-icons.css";
 
 const PANELS = [
   { id: "guide", label: "Hướng dẫn" },
@@ -16,6 +18,15 @@ const PANELS = [
 
 export default function BoothPage() {
   const [activePanel, setActivePanel] = useState("frames");
+  const [recentPhotos, setRecentPhotos] = useState([]);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const galleryActionRef = useRef(null);
+
+  const reportPhotos = useCallback((items, openGallery, busy) => {
+    setRecentPhotos(items);
+    setGalleryBusy(busy);
+    galleryActionRef.current = openGallery;
+  }, []);
   const [selectedFrameId, setSelectedFrameId] = useState("none");
   const [cameraStatus, setCameraStatus] = useState("loading");
   const [cvStatus, setCvStatus] = useState("waiting");
@@ -425,10 +436,11 @@ export default function BoothPage() {
     cancelDrag,
     drawStickers,
     clearStickers,
+    reportPhotos,
   }), [
     reportFrame, reportStatus, handlePinchStart,
     handlePinchEnd, resetCv, cancelDrag,
-    drawStickers, clearStickers,
+    drawStickers, clearStickers, reportPhotos,
   ]);
 
   const ready = cameraStatus === "ready" && cvStatus === "ready";
@@ -458,7 +470,7 @@ export default function BoothPage() {
         </header>
 
         <div className="interaction-hint" role="status">
-          {ready ? controlMessage : "Có thể dùng chuột để chọn công cụ."}
+          {ready ? (draggedKind ? stickerMessage : controlMessage) : "Có thể dùng chuột để chọn công cụ."}
         </div>
 
         <div ref={interactionRef} className="booth-layout">
@@ -546,7 +558,7 @@ export default function BoothPage() {
                   disabled={!scrollState.canUp}
                   onClick={() => scrollPanel(-1)}
                 >
-                  ↑
+                  <BoothIcon direction="up" />
                 </button>
                 <button
                   type="button"
@@ -555,17 +567,35 @@ export default function BoothPage() {
                   disabled={!scrollState.canDown}
                   onClick={() => scrollPanel(1)}
                 >
-                  ↓
+                  <BoothIcon direction="down" />
                 </button>
               </div>
             </section>
 
             <section className="photo-panel">
-              <h2>{draggedKind ? "Đang đặt sticker" : "Ảnh vừa chụp"}</h2>
-              <p className="muted-text" role="status">
-                {stickerMessage ||
-                  "Ảnh của lượt hiện tại hiển thị dưới camera."}
-              </p>
+              <div className="photo-panel-heading">
+                <h2>Ảnh vừa chụp</h2>
+                <span>{recentPhotos.length}/5</span>
+              </div>
+
+              {recentPhotos.length > 0 ? (
+                <button
+                  type="button"
+                  className="recent-photo-button"
+                  disabled={galleryBusy}
+                  onClick={() => galleryActionRef.current?.()}
+                  aria-label={`Xem ${recentPhotos.length} ảnh vừa chụp`}
+                  data-cv-selectable
+                >
+                  <img
+                    src={recentPhotos[recentPhotos.length - 1].previewUrl}
+                    alt="Ảnh chụp gần nhất"
+                  />
+                  <span className="recent-photo-open" aria-hidden="true"><BoothIcon direction="right" /></span>
+                </button>
+              ) : (
+                <p className="recent-photo-empty">Chưa có ảnh trong lượt này.</p>
+              )}
             </section>
           </aside>
         </div>

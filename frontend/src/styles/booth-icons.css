@@ -1,0 +1,275 @@
+/* Icon cong đồng bộ, giữ nguyên màu và logic của các nút. */
+.booth-icon {
+  display: block;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.booth-icon--right {
+  transform: scaleX(-1);
+}
+
+.booth-icon--up {
+  transform: rotate(90deg);
+}
+
+.booth-icon--down {
+  transform: rotate(-90deg);
+}
+
+/* Thu gọn các hàng phụ để vùng ảnh lớn hơn trong cùng chiều cao. */
+.capture-screen.photo-review {
+  padding: 10px 14px;
+  gap: 6px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.photo-review .review-heading {
+  gap: 12px;
+}
+
+.photo-review .review-heading h2 {
+  margin-bottom: 2px;
+  font-size: 1.15rem;
+}
+
+.photo-review .review-heading p {
+  font-size: 0.85rem;
+}
+
+/* Vẫn giữ thông báo cho trình đọc màn hình. */
+.photo-review .review-message {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Thông báo lưu hoặc lỗi thực tế vẫn phải nhìn thấy. */
+.photo-review:has(.review-message[data-has-message="true"]) {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.photo-review .review-message[data-has-message="true"] {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+}
+
+.photo-review .review-back-button {
+  width: 60px;
+  height: 46px;
+  padding: 6px;
+  background: #c2410c;
+  border-color: #fdba74;
+}
+
+.photo-review .review-back-button .booth-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.photo-review .review-navigation {
+  gap: 12px;
+}
+
+.photo-review .review-cycle-button {
+  width: 64px;
+  height: 46px;
+  padding: 5px;
+}
+
+.photo-review .review-cycle-button .booth-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.photo-review .review-decision {
+  height: 46px;
+}
+
+/* Giữ khoảng cách 12px và không cắt ảnh. */
+.photo-review .review-photo {
+  padding: 6px;
+}
+
+.photo-review .review-photo img {
+  object-fit: contain;
+}
+
+/* Nút cuộn trong bảng công cụ. */
+.panel-scroll-controls .scroll-button {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 4px;
+}
+
+.panel-scroll-controls .booth-icon {
+  width: 32px;
+  height: 32px;
+}
+
+/* Ảnh gần nhất bên trái, nút mở có khung bên phải. */
+.photo-panel .recent-photo-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+}
+
+.photo-panel .recent-photo-button img {
+  flex-shrink: 1;
+  min-width: 0;
+  width: 92px;
+  height: 52px;
+  object-fit: contain;
+  border-radius: 9px;
+  background: #020617;
+}
+
+.photo-panel .recent-photo-open {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 60px;
+  height: 48px;
+  border: 1px solid #94a3b8;
+  border-radius: 12px;
+  background: #0f172a;
+}
+
+.photo-panel .recent-photo-button:hover:not(:disabled) .recent-photo-open {
+  background: #334155;
+  border-color: #c4b5fd;
+}
+
+@media (max-width: 600px) {
+  .capture-screen.photo-review {
+    padding: 8px;
+    gap: 5px;
+  }
+
+  .photo-review .review-heading h2 {
+    font-size: 1rem;
+  }
+
+  .photo-review .review-back-button,
+  .photo-review .review-cycle-button {
+    width: 52px;
+    height: 44px;
+  }
+
+  .photo-review .review-decision {
+    width: 48px;
+    height: 44px;
+  }
+
+  .photo-panel .recent-photo-open {
+    width: 52px;
+    height: 44px;
+  }
+}
+/* Mũi tên cuộn thẳng, đặc. */
+.panel-scroll-controls .booth-scroll-icon {
+  width: 32px;
+  height: 32px;
+  transform: none;
+}
+
+.panel-scroll-controls .booth-scroll-icon--up {
+  transform: rotate(180deg);
+}
+
+/* Nút về camera và mở ảnh: nền xanh nước biển. */
+.photo-review .review-back-button,
+.photo-panel .recent-photo-open {
+  background: #0369a1;
+  border-color: #7dd3fc;
+  color: #ffffff;
+}
+
+.photo-review .review-back-button:hover:not(:disabled),
+.photo-panel .recent-photo-button:hover:not(:disabled) .recent-photo-open {
+  background: #075985;
+  border-color: #bae6fd;
+}
+
+/* Nút chuyển ảnh: vòng tròn có tam giác ở giữa. */
+.photo-review .review-cycle-button {
+  background: #0369a1;
+  border-color: #7dd3fc;
+  color: #ffffff;
+}
+
+.photo-review .review-cycle-button:hover:not(:disabled) {
+  background: #075985;
+}
+
+.photo-review .review-cycle-button .booth-icon--cycle {
+  width: 38px;
+  height: 38px;
+}
+/* Ảnh ở ô lớn trượt xuống khi chuyển ảnh. */
+.photo-review .review-photo.review-photo--leaving {
+  transform: translateY(110%);
+  opacity: 0;
+}
+/* Khi xem một ảnh lớn, dùng toàn bộ vùng hiển thị. */
+.photo-review .review-board:has(.review-expanded) {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+  max-height: none;
+}
+
+.photo-review .review-expanded {
+  inset: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+
+.photo-review .review-expanded img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+/* Các ảnh cùng di chuyển và đổi kích thước giữa các ô. */
+.photo-review .review-photo {
+  transition:
+    left 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    top 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    width 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    height 600ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Bỏ hiệu ứng bay ra ngoài cũ. */
+.photo-review .review-photo.review-photo--leaving {
+  transform: none;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-review .review-photo {
+    transition: none;
+  }
+}

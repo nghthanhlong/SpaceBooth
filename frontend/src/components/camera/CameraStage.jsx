@@ -1,31 +1,33 @@
 import {
-  useCallback, useContext, useEffect, useRef, useState,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
 import { CvEngine, DEFAULT_ENGINE } from "spacebooth-cv";
 import useWebcam from "../../hooks/useWebcam";
+import useCountdownAudio from "../../hooks/useCountdownAudio";
 import { createPhotoSession, getPhotoSessions } from "../../firebase";
 import { CvUiContext } from "./CvUiContext";
+import CountdownOverlay from "./CountdownOverlay";
+import CaptureScreen from "./CaptureScreen";
+import "../../styles/capture.css";
 
-function drawPhotoFrame(ctx, width, height, frame) {
+const COUNTDOWN_MS = 10_000;
+const MAX_PHOTOS = 5;
+
+function drawPhotoFrame(ctx, size, frame) {
   if (!frame?.color) return;
+
   ctx.save();
   ctx.strokeStyle = frame.color;
   ctx.lineWidth = 10;
-  ctx.strokeRect(5, 5, width - 10, height - 10);
+  ctx.strokeRect(5, 5, size.width - 10, size.height - 10);
   ctx.restore();
 }
 
-function newOverlayState() {
-  return {
-    captureProgress: 0,
-    countdownActive: false,
-    secondsLeft: 0,
-    flashUntil: 0,
-  };
-}
-
-function drawFeedback(ctx, size, data, state) {
-  const { width, height } = size;
+function drawArming(ctx, size, data, captureProgress) {
   ctx.save();
 
   if (data?.controller.kind === "arming") {
@@ -37,7 +39,9 @@ function drawFeedback(ctx, size, data, state) {
     if (wrist) {
       ctx.beginPath();
       ctx.arc(
-        wrist.x * width, wrist.y * height, 28,
+        wrist.x * size.width,
+        wrist.y * size.height,
+        28,
         -Math.PI / 2,
         -Math.PI / 2 + data.controller.progress * Math.PI * 2,
       );
@@ -47,46 +51,27 @@ function drawFeedback(ctx, size, data, state) {
     }
   }
 
-  if (state.captureProgress > 0 && !state.countdownActive) {
-    ctx.fillStyle = "rgba(15, 23, 42, .85)";
-    ctx.fillRect(12, 12, width - 24, 42);
+  if (captureProgress > 0) {
+    ctx.fillStyle = "rgba(15,23,42,.85)";
+    ctx.fillRect(12, 12, size.width - 24, 42);
     ctx.fillStyle = "#ffffff";
     ctx.font = "18px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(
-      `Giữ chữ V: ${Math.round(state.captureProgress * 100)}%`,
-      width / 2, 33, width - 48,
+      `Giữ chữ V: ${Math.round(captureProgress * 100)}%`,
+      size.width / 2,
+      33,
+      size.width - 48,
     );
-  }
-
-  if (state.countdownActive && state.secondsLeft > 0) {
-    ctx.beginPath();
-    ctx.arc(width / 2, height / 2, 64, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(0,0,0,.5)";
-    ctx.fill();
-    ctx.fillStyle = "#facc15";
-    ctx.font = "bold 72px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(String(state.secondsLeft), width / 2, height / 2);
-  }
-
-  const now = performance.now();
-
-  if (state.flashUntil > now) {
-    ctx.fillStyle = `rgba(255,255,255,${
-      ((state.flashUntil - now) / 400) * 0.8
-    })`;
-    ctx.fillRect(0, 0, width, height);
   }
 
   ctx.restore();
 }
 
 function formatSessionDate(timestamp) {
-  const date = timestamp?.toDate?.() ??
-    (timestamp ? new Date(timestamp) : null);
+  const date =
+    timestamp?.toDate?.() ?? (timestamp ? new Date(timestamp) : null);
 
   if (!date || Number.isNaN(date.getTime())) return "Chưa có thời gian";
 
@@ -98,33 +83,58 @@ function formatSessionDate(timestamp) {
 
 export default function CameraStage({ frame }) {
   const bridge = useContext(CvUiContext);
+  const audio = useCountdownAudio();
+
+  const rootRef = useRef(null);
   const cameraRef = useRef(null);
   const overlayRef = useRef(null);
+  const frameRef = useRef(frame);
   const dataRef = useRef(null);
   const frameAtRef = useRef(0);
-  const selectedFrameRef = useRef(frame);
-  const captureHandlerRef = useRef(() => {});
-  const overlayStateRef = useRef(newOverlayState());
-  const urlsRef = useRef(new Set());
-  const countRef = useRef(0);
-  const reservationsRef = useRef(0);
-  const uploadingRef = useRef(false);
+  const progressRef = useRef(0);
   const mountedRef = useRef(false);
+  const phaseRef = useRef("live");
+  const deadlineRef = useRef(0);
+  const lastSecondRef = useRef(null);
+  const snapshotRef = useRef(() => {});
+  const countdownRequestRef = useRef(() => {});
+  const photosRef = useRef([]);
+  const urlsRef = useRef(new Set());
+  const savingRef = useRef(false);
+  const flashTimerRef = useRef(null);
 
   const [aspectRatio, setAspectRatio] = useState("16 / 9");
+  const [phase, setPhase] = useState("live");
+  const [seconds, setSeconds] = useState(null);
+  const [flash, setFlash] = useState(false);
   const [photos, setPhotos] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [albums, setAlbums] = useState([]);
-  const [loadingAlbums, setLoadingAlbums] = useState(true);
-  const [albumError, setAlbumError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [saving, setSaving] = useState(false);
   const [cvStatus, setCvStatus] = useState("waiting");
   const [cvError, setCvError] = useState("");
+  const [albums, setAlbums] = useState([]);
+  const [albumError, setAlbumError] = useState("");
+  const [loadingAlbums, setLoadingAlbums] = useState(true);
+  const [reviewHost, setReviewHost] = useState(null);
+  const [reviewHeight, setReviewHeight] = useState(480);
 
   const { videoRef, status, error, retry } = useWebcam();
 
+  const { playTick, playCapture } = audio;
+
+  const changePhase = useCallback((next) => {
+    phaseRef.current = next;
+    setPhase(next);
+  }, []);
+
+  const updatePhotos = useCallback((next) => {
+    photosRef.current = next;
+    setPhotos(next);
+  }, []);
+
   useEffect(() => {
-    selectedFrameRef.current = frame;
+    frameRef.current = frame;
   }, [frame]);
 
   useEffect(() => {
@@ -137,9 +147,29 @@ export default function CameraStage({ frame }) {
 
     return () => {
       mountedRef.current = false;
+      window.clearTimeout(flashTimerRef.current);
       urls.forEach((url) => URL.revokeObjectURL(url));
       urls.clear();
     };
+  }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    const stage = root?.querySelector(".camera-stage");
+
+    if (!root || !stage) return;
+
+    setReviewHost(root.closest(".booth-layout"));
+
+    function measure() {
+      setReviewHeight(stage.getBoundingClientRect().height);
+    }
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+
+    return () => observer.disconnect();
   }, []);
 
   const loadAlbums = useCallback(async () => {
@@ -167,7 +197,9 @@ export default function CameraStage({ frame }) {
         if (active) setAlbums(result);
       })
       .catch((loadError) => {
-        if (active) setAlbumError(loadError.message || "Không thể tải album.");
+        if (active) {
+          setAlbumError(loadError.message || "Không thể tải album.");
+        }
       })
       .finally(() => {
         if (active) setLoadingAlbums(false);
@@ -178,11 +210,162 @@ export default function CameraStage({ frame }) {
     };
   }, []);
 
-  function retryCamera() {
-    setCvStatus("waiting");
-    setCvError("");
-    retry();
-  }
+  const startCountdown = useCallback(() => {
+    if (phaseRef.current !== "live" || savingRef.current) return;
+
+    const video = videoRef.current;
+
+    if (
+      status !== "ready" ||
+      !video ||
+      video.readyState < 2 ||
+      video.videoWidth === 0
+    ) {
+      setFeedback("Camera chưa sẵn sàng.");
+      return;
+    }
+
+    if (photosRef.current.length >= MAX_PHOTOS) {
+      setFeedback("Đã đủ 5 ảnh. Hãy xem và lưu ảnh trước.");
+      return;
+    }
+
+    bridge?.cancelDrag("Đang chụp, đã hủy sticker chưa dán.");
+    progressRef.current = 0;
+    lastSecondRef.current = 10;
+    deadlineRef.current = performance.now() + COUNTDOWN_MS;
+
+    setFeedback("");
+    setSeconds(10);
+    changePhase("countdown");
+    playTick(10);
+  }, [status, videoRef, bridge, changePhase, playTick]);
+
+  useEffect(() => {
+    countdownRequestRef.current = startCountdown;
+  }, [startCountdown]);
+
+  const takeSnapshot = useCallback(() => {
+    if (phaseRef.current !== "countdown") return;
+
+    changePhase("capturing");
+    setSeconds(null);
+
+    const video = videoRef.current;
+
+    if (!video || video.readyState < 2 || video.videoWidth === 0) {
+      setFeedback("Camera bị gián đoạn. Hãy thử chụp lại.");
+      changePhase("live");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) {
+      setFeedback("Không thể tạo ảnh.");
+      changePhase("live");
+      return;
+    }
+
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    const size = { width: canvas.width, height: canvas.height };
+    const fresh = performance.now() - frameAtRef.current <= 500;
+
+    bridge?.drawStickers(
+      ctx,
+      size,
+      fresh ? dataRef.current?.faces ?? [] : [],
+      false,
+    );
+
+    drawPhotoFrame(ctx, size, frameRef.current);
+
+    playCapture();
+    setFlash(true);
+
+    window.clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = window.setTimeout(() => {
+      if (mountedRef.current) setFlash(false);
+    }, 350);
+
+    canvas.toBlob((blob) => {
+      if (!mountedRef.current) return;
+
+      if (!blob) {
+        setFeedback("Không tạo được ảnh. Hãy thử lại.");
+        changePhase("live");
+        return;
+      }
+
+      const id = crypto.randomUUID();
+
+      const file = new File([blob], `spacebooth_${id}.png`, {
+        type: "image/png",
+      });
+
+      const previewUrl = URL.createObjectURL(file);
+      urlsRef.current.add(previewUrl);
+
+      updatePhotos([
+        ...photosRef.current,
+        { id, file, previewUrl },
+      ]);
+
+      setReviewMessage("");
+      setFeedback("Đã chụp ảnh. Bấm ô Ảnh vừa chụp để xem.");
+      changePhase("live");
+    }, "image/png");
+  }, [
+    bridge,
+    videoRef,
+    changePhase,
+    playCapture,
+    updatePhotos,
+  ]);
+
+  useEffect(() => {
+    snapshotRef.current = takeSnapshot;
+  }, [takeSnapshot]);
+
+  // Chỉ một đồng hồ UI quyết định thời điểm tạo ảnh.
+  useEffect(() => {
+    if (phase !== "countdown") return;
+
+    let animationId;
+
+    function tick() {
+      const remaining = Math.max(
+        0,
+        Math.ceil((deadlineRef.current - performance.now()) / 1000),
+      );
+
+      if (remaining <= 0) {
+        snapshotRef.current();
+        return;
+      }
+
+      if (remaining !== lastSecondRef.current) {
+        lastSecondRef.current = remaining;
+        setSeconds(remaining);
+        playTick(remaining);
+      }
+
+      animationId = requestAnimationFrame(tick);
+    }
+
+    tick();
+
+    return () => cancelAnimationFrame(animationId);
+  }, [phase, playTick]);
 
   useEffect(() => {
     if (status !== "ready") return;
@@ -192,20 +375,24 @@ export default function CameraStage({ frame }) {
     const engine = new CvEngine(videoRef.current, {
       controller: {
         ...DEFAULT_ENGINE.controller,
-        countdownMs: 10_000,
+        countdownMs: COUNTDOWN_MS,
       },
     });
 
     const unsubs = [
       engine.on("frame", (data) => {
         if (!active) return;
+
         dataRef.current = data;
         frameAtRef.current = performance.now();
         bridge?.reportFrame(data);
       }),
 
       engine.on("pinchStart", (point) => {
-        if (active && !overlayStateRef.current.countdownActive) {
+        if (
+          active &&
+          (phaseRef.current === "live" || phaseRef.current === "review")
+        ) {
           bridge?.handlePinchStart(point);
         }
       }),
@@ -215,32 +402,21 @@ export default function CameraStage({ frame }) {
       }),
 
       engine.on("release", () => {
-        if (active) bridge?.cancelDrag("Đã mất quyền. Hủy kéo sticker.");
+        if (active) {
+          bridge?.cancelDrag("Mất quyền điều khiển, đã hủy kéo sticker.");
+        }
       }),
 
       engine.on("captureProgress", ({ progress }) => {
-        if (active) overlayStateRef.current.captureProgress = progress;
+        if (active && phaseRef.current === "live") {
+          progressRef.current = progress;
+        }
       }),
 
-      engine.on("countdownStart", ({ durationMs }) => {
-        if (!active) return;
-        bridge?.cancelDrag("Bắt đầu chụp. Đã hủy sticker chưa dán.");
-        overlayStateRef.current.countdownActive = true;
-        overlayStateRef.current.secondsLeft = Math.ceil(durationMs / 1000);
-        overlayStateRef.current.captureProgress = 0;
-      }),
-
-      engine.on("countdown", ({ secondsLeft }) => {
-        if (active) overlayStateRef.current.secondsLeft = secondsLeft;
-      }),
-
-      engine.on("capture", () => {
-        if (!active) return;
-        overlayStateRef.current.countdownActive = false;
-        overlayStateRef.current.secondsLeft = 0;
-        overlayStateRef.current.captureProgress = 0;
-        overlayStateRef.current.flashUntil = performance.now() + 400;
-        captureHandlerRef.current();
+      engine.on("countdownStart", () => {
+        if (active && phaseRef.current === "live") {
+          countdownRequestRef.current();
+        }
       }),
     ];
 
@@ -250,11 +426,13 @@ export default function CameraStage({ frame }) {
           engine.stop();
           return;
         }
+
         setCvStatus("ready");
         setCvError("");
       })
       .catch((startError) => {
         engine.stop();
+
         if (active) {
           setCvStatus("error");
           setCvError(startError.message || "Không tải được nhận diện.");
@@ -266,7 +444,7 @@ export default function CameraStage({ frame }) {
       unsubs.forEach((unsubscribe) => unsubscribe());
       engine.stop();
       dataRef.current = null;
-      overlayStateRef.current = newOverlayState();
+      progressRef.current = 0;
       bridge?.resetCv();
     };
   }, [status, videoRef, bridge]);
@@ -281,6 +459,7 @@ export default function CameraStage({ frame }) {
     const ctx = overlay.getContext("2d");
 
     if (!cameraContext || !ctx) return;
+
     let animationId;
 
     function draw() {
@@ -308,141 +487,155 @@ export default function CameraStage({ frame }) {
         const fresh = performance.now() - frameAtRef.current <= 500;
         const data = fresh ? dataRef.current : null;
 
-        bridge?.drawStickers(ctx, size, data?.faces ?? [], true);
-        drawPhotoFrame(ctx, width, height, selectedFrameRef.current);
-        drawFeedback(ctx, size, data, overlayStateRef.current);
+        bridge?.drawStickers(
+          ctx,
+          size,
+          data?.faces ?? [],
+          phaseRef.current === "live",
+        );
+
+        drawPhotoFrame(ctx, size, frameRef.current);
+
+        if (phaseRef.current === "live") {
+          drawArming(ctx, size, data, progressRef.current);
+        }
       }
 
       animationId = requestAnimationFrame(draw);
     }
 
     draw();
+
     return () => cancelAnimationFrame(animationId);
   }, [status, videoRef, bridge]);
 
-  const handleCapture = useCallback(() => {
-    const video = videoRef.current;
-
-    if (
-      status !== "ready" || !video ||
-      video.readyState < 2 || video.videoWidth === 0
-    ) {
-      setFeedback("Camera chưa sẵn sàng.");
-      return;
+  function retryCamera() {
+    if (phaseRef.current === "countdown") {
+      changePhase("live");
+      setSeconds(null);
     }
 
-    if (uploadingRef.current) {
-      setFeedback("Hãy chờ lưu album xong.");
-      return;
-    }
+    setCvStatus("waiting");
+    setCvError("");
+    retry();
+  }
 
-    if (countRef.current + reservationsRef.current >= 5) {
-      setFeedback("Đã đủ 5 ảnh. Hãy lưu album trước khi chụp tiếp.");
-      return;
-    }
+  const openReview = useCallback(() => {
+    if (phaseRef.current !== "live" || photosRef.current.length === 0) return;
 
-    bridge?.cancelDrag("Đã hủy sticker chưa dán để chụp ảnh.");
+    bridge?.cancelDrag();
+    setReviewMessage("");
+    changePhase("review");
+  }, [bridge, changePhase]);
 
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
+  function backToCamera() {
+    if (savingRef.current) return;
+    setReviewMessage("");
+    changePhase("live");
+  }
 
-    if (!ctx) {
-      setFeedback("Không thể tạo ảnh.");
-      return;
-    }
+  async function saveSelectedPhotos(selectedIds) {
+    if (savingRef.current || phaseRef.current !== "review") return;
 
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
-
-    const fresh = performance.now() - frameAtRef.current <= 500;
-
-    bridge?.drawStickers(
-      ctx,
-      { width: canvas.width, height: canvas.height },
-      fresh ? dataRef.current?.faces ?? [] : [],
-      false,
+    const selected = photosRef.current.filter(
+      (photo) => selectedIds.includes(photo.id),
     );
 
-    drawPhotoFrame(ctx, canvas.width, canvas.height, selectedFrameRef.current);
-
-    reservationsRef.current += 1;
-
-    canvas.toBlob((blob) => {
-      reservationsRef.current -= 1;
-      if (!mountedRef.current) return;
-
-      if (!blob) {
-        setFeedback("Không thể tạo ảnh. Hãy thử lại.");
-        return;
-      }
-
-      const file = new File([blob], `photo_${Date.now()}.png`, {
-        type: "image/png",
-      });
-
-      const previewUrl = URL.createObjectURL(file);
-      urlsRef.current.add(previewUrl);
-      countRef.current += 1;
-
-      setPhotos((previous) => [...previous, { file, previewUrl }]);
-      setFeedback("Đã chụp ảnh có khung và sticker.");
-    }, "image/png");
-  }, [status, videoRef, bridge]);
-
-  useEffect(() => {
-    captureHandlerRef.current = handleCapture;
-  }, [handleCapture]);
-
-  async function saveAlbum() {
-    if (uploadingRef.current) return;
-
-    if (reservationsRef.current > 0) {
-      setFeedback("Ảnh đang được xử lý. Hãy chờ một chút.");
+    if (selected.length === 0) {
+      setReviewMessage("Hãy chọn ít nhất một ảnh.");
       return;
     }
 
-    if (photos.length === 0) {
-      setFeedback("Hãy chụp ít nhất một ảnh.");
-      return;
-    }
-
-    uploadingRef.current = true;
-    setUploading(true);
-    setFeedback("Đang lưu album…");
+    savingRef.current = true;
+    setSaving(true);
+    setReviewMessage("Đang lưu ảnh đã chọn…");
 
     try {
-      const result = await createPhotoSession(photos.map(({ file }) => file));
+      const result = await createPhotoSession(
+        selected.map((photo) => photo.file),
+      );
+
       if (!mountedRef.current) return;
 
       if (!result.success) {
-        setFeedback(`Lưu thất bại: ${result.error}`);
+        setReviewMessage(`Lưu thất bại: ${result.error}`);
         return;
       }
 
-      urlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      urlsRef.current.clear();
-      countRef.current = 0;
-      setPhotos([]);
-      bridge?.clearStickers();
-      setFeedback("Đã lưu album thành công.");
+      const savedIds = new Set(selected.map((photo) => photo.id));
+      const remaining = photosRef.current.filter(
+        (photo) => !savedIds.has(photo.id),
+      );
+
+      // Chỉ giải phóng những ảnh đã lưu thành công.
+      selected.forEach((photo) => {
+        URL.revokeObjectURL(photo.previewUrl);
+        urlsRef.current.delete(photo.previewUrl);
+      });
+
+      updatePhotos(remaining);
+
+      if (remaining.length === 0) {
+        bridge?.clearStickers();
+      }
+
+      setFeedback(
+        `Đã lưu ${selected.length} ảnh. ${
+          remaining.length > 0
+            ? `Còn ${remaining.length} ảnh chưa lưu.`
+            : "Có thể bắt đầu lượt chụp mới."
+        }`,
+      );
+
+      if (remaining.length === 0) {
+        changePhase("live");
+      } else {
+        setReviewMessage("Đã lưu ảnh. Có thể xem và lưu ảnh tiếp theo.");
+      }
+
       await loadAlbums();
     } catch (saveError) {
       if (mountedRef.current) {
-        setFeedback(`Không thể lưu: ${saveError.message || "Hãy thử lại."}`);
+        setReviewMessage(
+          `Không thể lưu ảnh: ${saveError.message || "Hãy thử lại."}`,
+        );
       }
     } finally {
-      uploadingRef.current = false;
-      if (mountedRef.current) setUploading(false);
+      savingRef.current = false;
+      if (mountedRef.current) setSaving(false);
     }
   }
 
+  function discardPhoto(id) {
+    if (savingRef.current || phaseRef.current !== "review") return;
+
+    const discarded = photosRef.current.find((photo) => photo.id === id);
+    if (!discarded) return;
+
+    const remaining = photosRef.current.filter((photo) => photo.id !== id);
+
+    URL.revokeObjectURL(discarded.previewUrl);
+    urlsRef.current.delete(discarded.previewUrl);
+    updatePhotos(remaining);
+
+    if (remaining.length === 0) {
+      setFeedback("Đã bỏ ảnh cuối cùng của lượt hiện tại.");
+      changePhase("live");
+    } else {
+      setReviewMessage("Đã bỏ ảnh khỏi lượt hiện tại.");
+    }
+  }
+
+  useEffect(() => {
+    bridge?.reportPhotos?.(
+      photos,
+      openReview,
+      phase !== "live" || saving,
+    );
+  }, [photos, openReview, phase, saving, bridge]);
+
   return (
-    <section className="camera-section">
+    <section ref={rootRef} className="camera-section">
       <div className="camera-stage" style={{ aspectRatio }}>
         <video ref={videoRef} autoPlay muted playsInline hidden />
 
@@ -458,6 +651,10 @@ export default function CameraStage({ frame }) {
           aria-hidden="true"
         />
 
+        <CountdownOverlay seconds={seconds} />
+
+        {flash && <div className="capture-flash" aria-hidden="true" />}
+
         {status !== "ready" && (
           <div className="camera-message">
             {status === "loading" ? (
@@ -465,7 +662,9 @@ export default function CameraStage({ frame }) {
             ) : (
               <>
                 <p role="alert">{error}</p>
-                <button type="button" onClick={retryCamera}>Thử lại</button>
+                <button type="button" onClick={retryCamera}>
+                  Thử lại
+                </button>
               </>
             )}
           </div>
@@ -473,57 +672,67 @@ export default function CameraStage({ frame }) {
       </div>
 
       <div className="camera-toolbar">
-        <span className="camera-photo-count">{photos.length}/5 ảnh</span>
+        <span className="camera-photo-count">
+          {photos.length}/{MAX_PHOTOS} ảnh
+        </span>
+
         <div className="camera-toolbar-buttons">
           <button
             type="button"
-            className="primary-button"
-            onClick={handleCapture}
-            disabled={status !== "ready" || photos.length >= 5 || uploading}
+            className="audio-button"
+            onClick={audio.toggle}
+            aria-pressed={audio.enabled}
+            disabled={phase === "countdown" || phase === "capturing"}
           >
-            Chụp ảnh
+            {audio.enabled ? "Âm thanh: Bật" : "Bật âm thanh"}
           </button>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={startCountdown}
+            disabled={
+              status !== "ready" ||
+              phase !== "live" ||
+              photos.length >= MAX_PHOTOS ||
+              saving
+            }
+          >
+            {phase === "countdown" ? "Đang đếm ngược…" : "Chụp ảnh"}
+          </button>
+
           <button
             type="button"
             className="secondary-button"
-            onClick={saveAlbum}
-            disabled={uploading || photos.length === 0}
+            onClick={openReview}
+            disabled={photos.length === 0 || phase !== "live"}
           >
-            {uploading ? "Đang lưu…" : "Lưu album"}
+            Xem ảnh ({photos.length})
           </button>
         </div>
       </div>
 
       <p className="photo-feedback" role="status">
-        {feedback || "Giơ chữ V để bắt đầu đếm ngược."}
+        {audio.error ||
+          feedback ||
+          "Bật âm thanh một lần, sau đó giơ chữ V để chụp."}
       </p>
 
       {status === "ready" && cvStatus === "error" && (
         <div className="cv-error" role="alert">
           <p>Nhận diện chưa hoạt động: {cvError}</p>
-          <button type="button" onClick={retryCamera}>Thử lại nhận diện</button>
+          <button type="button" onClick={retryCamera}>
+            Thử lại nhận diện
+          </button>
         </div>
       )}
 
-      {photos.length > 0 && (
-        <section className="photo-controls" aria-label="Ảnh chờ lưu">
-          <h2>Ảnh vừa chụp</h2>
-          <div className="captured-photos">
-            {photos.map(({ previewUrl }, index) => (
-              <img
-                key={previewUrl}
-                src={previewUrl}
-                alt={`Ảnh vừa chụp ${index + 1}`}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <details className="saved-albums">
+<details className="saved-albums">
         <summary>Album đã lưu</summary>
+
         <div className="saved-albums-heading">
           <p>Các album đã lưu gần đây</p>
+
           <button
             type="button"
             disabled={loadingAlbums}
@@ -538,6 +747,7 @@ export default function CameraStage({ frame }) {
         </div>
 
         {albumError && <p role="alert">{albumError}</p>}
+
         {!albumError && !loadingAlbums && albums.length === 0 && (
           <p>Chưa có album nào.</p>
         )}
@@ -547,6 +757,7 @@ export default function CameraStage({ frame }) {
             <article className="album-card" key={album.id}>
               <h3>Album {album.sessionId || album.id}</h3>
               <p>{formatSessionDate(album.createdAt)}</p>
+
               <div className="album-photos">
                 {(Array.isArray(album.allPhotos) ? album.allPhotos : []).map(
                   (url, index) => (
@@ -556,7 +767,10 @@ export default function CameraStage({ frame }) {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      <img src={url} alt={`Ảnh ${index + 1} trong album`} />
+                      <img
+                        src={url}
+                        alt={`Ảnh ${index + 1} trong album`}
+                      />
                     </a>
                   ),
                 )}
@@ -565,6 +779,19 @@ export default function CameraStage({ frame }) {
           ))}
         </div>
       </details>
+
+      {phase === "review" && photos.length > 0 && (
+        <CaptureScreen
+          host={reviewHost}
+          height={reviewHeight}
+          photos={photos}
+          saving={saving}
+          message={reviewMessage}
+          onBack={backToCamera}
+          onSave={saveSelectedPhotos}
+          onDiscard={discardPhoto}
+        />
+      )}
     </section>
   );
 }
