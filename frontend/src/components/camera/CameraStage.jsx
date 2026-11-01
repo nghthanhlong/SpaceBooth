@@ -12,6 +12,7 @@ import { createPhotoSession, getPhotoSessions } from "../../firebase";
 import { CvUiContext } from "./CvUiContext";
 import CountdownOverlay from "./CountdownOverlay";
 import CaptureScreen from "./CaptureScreen";
+import QRDisplay from "./QRDisplay";
 import "../../styles/capture.css";
 
 const COUNTDOWN_MS = 10_000;
@@ -118,6 +119,7 @@ export default function CameraStage({ frame }) {
   const [loadingAlbums, setLoadingAlbums] = useState(true);
   const [reviewHost, setReviewHost] = useState(null);
   const [reviewHeight, setReviewHeight] = useState(480);
+  const [savedSession, setSavedSession] = useState(null);
 
   const { videoRef, status, error, retry } = useWebcam();
 
@@ -391,7 +393,7 @@ export default function CameraStage({ frame }) {
       engine.on("pinchStart", (point) => {
         if (
           active &&
-          (phaseRef.current === "live" || phaseRef.current === "review")
+          (["live", "review", "qr"].includes(phaseRef.current) && !savingRef.current)
         ) {
           bridge?.handlePinchStart(point);
         }
@@ -587,10 +589,27 @@ export default function CameraStage({ frame }) {
         }`,
       );
 
-      if (remaining.length === 0) {
+      const downloadableUrls = (result.urls ?? []).filter((url) => {
+        try {
+          return new URL(url).protocol === "https:";
+        } catch {
+          return false;
+        }
+      });
+
+      if (downloadableUrls.length > 0) {
+        setSavedSession({
+          sessionId: result.sessionId,
+          urls: downloadableUrls,
+        });
+        setReviewMessage("");
+        bridge?.cancelDrag();
+        changePhase("qr");
+      } else if (remaining.length === 0) {
         changePhase("live");
+        setFeedback("Đã lưu ảnh nhưng chưa nhận được liên kết QR. Kiểm tra Album đã lưu.");
       } else {
-        setReviewMessage("Đã lưu ảnh. Có thể xem và lưu ảnh tiếp theo.");
+        setReviewMessage("Đã lưu ảnh nhưng chưa nhận được liên kết QR. Kiểm tra Album đã lưu.");
       }
 
       await loadAlbums();
@@ -604,6 +623,14 @@ export default function CameraStage({ frame }) {
       savingRef.current = false;
       if (mountedRef.current) setSaving(false);
     }
+  }
+
+  function closeQr() {
+    if (savingRef.current) return;
+
+    setSavedSession(null);
+    setReviewMessage("");
+    changePhase(photosRef.current.length > 0 ? "review" : "live");
   }
 
   function discardPhoto(id) {
@@ -790,6 +817,16 @@ export default function CameraStage({ frame }) {
           onBack={backToCamera}
           onSave={saveSelectedPhotos}
           onDiscard={discardPhoto}
+        />
+      )}
+      {phase === "qr" && savedSession && (
+        <QRDisplay
+          key={savedSession.sessionId}
+          host={reviewHost}
+          height={reviewHeight}
+          session={savedSession}
+          remainingCount={photos.length}
+          onBack={closeQr}
         />
       )}
     </section>

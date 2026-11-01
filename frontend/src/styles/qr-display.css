@@ -1,0 +1,283 @@
+.qr-screen {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 20;
+
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+
+  min-width: 0;
+  padding: 16px;
+  overflow: auto;
+
+  border: 1px solid #475569;
+  border-radius: 20px;
+  background: #0f172a;
+  animation: qr-appear 180ms ease-out;
+}
+
+.qr-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.qr-heading h2 {
+  margin: 0 0 4px;
+  color: #86efac;
+  font-size: 1.2rem;
+}
+
+.qr-heading p,
+.qr-footer p {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.qr-back {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 60px;
+  height: 48px;
+  padding: 6px;
+  border: 1px solid #7dd3fc;
+  border-radius: 12px;
+  background: #0369a1;
+  color: #fff;
+}
+
+.qr-back:hover {
+  background: #075985;
+}
+
+.qr-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr);
+  align-items: center;
+  gap: 24px;
+  min-height: 0;
+}
+
+.qr-preview {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.qr-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.qr-instructions {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-width: 0;
+  text-align: center;
+}
+
+.qr-code {
+  width: clamp(180px, 20vw, 280px);
+  max-width: 100%;
+  background: #fff;
+}
+
+/* Giữ mã QR vuông, không đặt logo hoặc hiệu ứng lên mã. */
+.qr-code svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.qr-instructions p {
+  max-width: 340px;
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.qr-instructions a {
+  color: #7dd3fc;
+}
+
+.qr-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
+@keyframes qr-appear {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .qr-content {
+    grid-template-columns: minmax(0, 1fr) minmax(200px, 1fr);
+    gap: 14px;
+  }
+
+  .qr-code {
+    width: 210px;
+  }
+}
+
+@media (max-width: 600px) {
+  .qr-screen {
+    padding: 12px;
+  }
+
+  .qr-heading {
+    align-items: flex-start;
+  }
+
+  .qr-heading h2 {
+    font-size: 1rem;
+  }
+
+  .qr-heading p {
+    font-size: 0.85rem;
+  }
+
+  .qr-content {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .qr-preview {
+    height: 150px;
+  }
+
+  .qr-code {
+    width: 240px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-screen {
+    animation: none;
+  }
+}
+/* Giữ ảnh trong vùng giữa, không tràn xuống thông báo. */
+.qr-screen .qr-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.qr-screen .qr-preview {
+  min-height: 0;
+  max-height: 100%;
+}
+
+.qr-screen .qr-preview img {
+  min-height: 0;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Thông báo nằm ở hàng riêng trên nền tối. */
+.qr-screen .qr-footer {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #1e293b;
+}
+
+.qr-screen .qr-footer p {
+  margin: 0;
+  color: #e2e8f0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* Màn nhỏ: cuộn nội dung để giữ QR đủ lớn. */
+@media (max-width: 600px) {
+  .qr-screen {
+    grid-template-rows: auto minmax(min-content, 1fr) auto;
+  }
+
+  .qr-screen .qr-content {
+    overflow: visible;
+  }
+}
+/* Dành hàng riêng cho tiêu đề, nội dung và thông báo. */
+.qr-screen {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+/* Thiếu chiều cao thì cuộn, không cắt hướng dẫn. */
+.qr-screen .qr-content {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-items: start;
+  padding: 4px 8px;
+  scrollbar-gutter: stable;
+}
+
+.qr-screen .qr-preview {
+  position: sticky;
+  top: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.qr-screen .qr-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.qr-screen .qr-instructions {
+  min-width: 0;
+  padding-bottom: 12px;
+}
+
+.qr-screen .qr-code {
+  width: clamp(180px, 18vw, 240px);
+  flex-shrink: 0;
+}
+
+.qr-screen .qr-footer {
+  position: static;
+  z-index: auto;
+}
+
+@media (max-width: 600px) {
+  .qr-screen .qr-content {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .qr-screen .qr-preview {
+    position: static;
+    height: 150px;
+  }
+
+  .qr-screen .qr-code {
+    width: 220px;
+  }
+}
