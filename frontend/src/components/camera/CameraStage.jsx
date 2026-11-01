@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import useWebcam from "../../hooks/useWebcam";
 import { CvEngine } from "spacebooth-cv"; // từ package đã link workspace
+import { createPhotoSession } from "../../firebase"; // Import hàm upload Firebase
 
 export default function CameraStage() {
   const cameraCanvasRef = useRef(null);
@@ -8,6 +9,10 @@ export default function CameraStage() {
   const engineRef = useRef(null);
   const [aspectRatio, setAspectRatio] = useState("16 / 9");
   const [frameData, setFrameData] = useState(null);
+  
+  // State lưu 5 ảnh
+  const [capturedPhotos, setCapturedPhotos] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const { videoRef, status, error, retry } = useWebcam();
 
@@ -84,6 +89,58 @@ export default function CameraStage() {
     });
   }, [frameData]);
 
+  // 4. Hàm chụp ảnh: Gộp Camera + Overlay (Sticker) thành 1 file
+  const handleCapture = () => {
+    const cameraCanvas = cameraCanvasRef.current;
+    const overlayCanvas = overlayCanvasRef.current;
+    if (!cameraCanvas || !overlayCanvas) return;
+
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = cameraCanvas.width;
+    tempCanvas.height = cameraCanvas.height;
+    const ctx = tempCanvas.getContext("2d");
+
+    ctx.save();
+    ctx.translate(tempCanvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(cameraCanvas, 0, 0);
+    ctx.restore();
+    ctx.drawImage(overlayCanvas, 0, 0);
+
+    tempCanvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `photo_${Date.now()}.png`, { type: "image/png" });
+        setCapturedPhotos((prev) => {
+          if (prev.length >= 5) return prev;
+          const newPhotos = [...prev, file];
+          if (newPhotos.length === 5) {
+            alert("Đã chụp đủ 5 ảnh! Hãy bấm 'Lưu Album' để Upload lên Firebase.");
+          }
+          return newPhotos;
+        });
+      }
+    }, "image/png");
+  };
+
+  // 5. Hàm Lưu Album (Upload 5 ảnh lên Firebase)
+  const handleSaveSession = async () => {
+    if (capturedPhotos.length === 0) {
+      alert("Chưa có ảnh nào! Hãy chụp trước.");
+      return;
+    }
+    
+    setIsUploading(true);
+    const result = await createPhotoSession(capturedPhotos);
+    setIsUploading(false);
+
+    if (result.success) {
+      alert(`Lưu Album thành công!\nSession ID: ${result.sessionId}\nLink ảnh 1: ${result.urls[0]}`);
+      setCapturedPhotos([]);
+    } else {
+      alert("Lỗi Upload: " + result.error);
+    }
+  };
+
   return (
     <section className="camera-section">
 
@@ -131,6 +188,40 @@ export default function CameraStage() {
           </div>
         )}
       </div>
+
+      {/* 6. Khu vực nút bấm Test Upload */}
+      {status === "ready" && (
+        <div style={{ marginTop: "20px", padding: "15px", background: "#1e293b", borderRadius: "8px", textAlign: "center" }}>
+          <h3>Khu vực Test Upload</h3>
+          
+          <button 
+            onClick={handleCapture} 
+            disabled={capturedPhotos.length >= 5}
+            style={{ padding: "10px 20px", marginRight: "10px", background: "#3b82f6", color: "white", border: "none", borderRadius: "5px", cursor: capturedPhotos.length >= 5 ? "not-allowed" : "pointer" }}
+          >
+            Chụp Ảnh ({capturedPhotos.length}/5)
+          </button>
+
+          <button 
+            onClick={handleSaveSession} 
+            disabled={capturedPhotos.length === 0 || isUploading}
+            style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "5px", cursor: (capturedPhotos.length === 0 || isUploading) ? "not-allowed" : "pointer" }}
+          >
+            {isUploading ? "Đang Upload..." : "Lưu Album (Firebase)"}
+          </button>
+
+          <div style={{ display: "flex", gap: "10px", marginTop: "15px", justifyContent: "center" }}>
+            {capturedPhotos.map((file, idx) => (
+              <img 
+                key={idx} 
+                src={URL.createObjectURL(file)} 
+                alt={`captured ${idx}`} 
+                style={{ width: "80px", height: "80px", objectFit: "cover", border: "2px solid white", borderRadius: "4px" }} 
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
