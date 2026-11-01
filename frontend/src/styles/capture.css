@@ -1,0 +1,371 @@
+.booth-layout {
+  position: relative;
+}
+
+.countdown-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.2);
+  pointer-events: none;
+}
+
+.countdown-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: white;
+  text-shadow: 0 2px 12px #020617;
+}
+
+.countdown-label {
+  font-size: clamp(14px, 2vw, 24px);
+  font-weight: 600;
+}
+
+.countdown-number {
+  display: grid;
+  place-items: center;
+  min-width: 1.6em;
+  font-size: clamp(70px, 12vw, 170px);
+  line-height: 1.2;
+  color: #facc15;
+  animation: countdown-pulse 0.8s ease-out both;
+}
+
+.countdown-note {
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.8);
+  font-size: clamp(12px, 1.3vw, 18px);
+}
+
+.capture-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: white;
+  animation: photo-flash 0.35s ease-out forwards;
+  pointer-events: none;
+}
+
+.capture-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid #475569;
+  border-radius: 18px;
+  background: #0f172a;
+  overflow: hidden;
+  animation: review-enter 0.2s ease-out;
+}
+
+.capture-screen-header,
+.capture-screen-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.capture-screen-header h2 {
+  margin: 0 0 4px;
+}
+
+.capture-screen-header p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.golden-photo-board {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #020617;
+}
+
+.golden-photo {
+  position: absolute;
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: #0f172a;
+  overflow: hidden;
+  transition:
+    left 0.35s ease,
+    top 0.35s ease,
+    width 0.35s ease,
+    height 0.35s ease,
+    transform 0.22s ease,
+    opacity 0.22s ease;
+}
+
+.golden-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+}
+
+.golden-photo:disabled {
+  opacity: 1;
+}
+
+.golden-photo.is-leaving {
+  transform: translateY(-110%);
+  opacity: 0;
+}
+
+.photo-index {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 2px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: white;
+  background: rgba(15, 23, 42, 0.85);
+  pointer-events: none;
+}
+
+.expanded-photo {
+  position: absolute;
+  inset: 0;
+  background: #020617;
+}
+
+.expanded-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.close-photo-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid #f87171;
+  border-radius: 12px;
+  color: #f87171;
+  background: #0f172a;
+  font-size: 32px;
+}
+
+.photo-navigation,
+.photo-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.photo-navigation > span {
+  min-width: 40px;
+  text-align: center;
+  color: #cbd5e1;
+}
+
+.photo-navigation button {
+  min-width: 52px;
+}
+
+.photo-decision {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 52px;
+  padding: 0;
+  border-radius: 12px;
+  font-size: 32px;
+  line-height: 1;
+}
+
+.photo-discard {
+  border: 1px solid #991b1b;
+  color: white;
+  background: #b91c1c;
+}
+
+.photo-discard:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.photo-save {
+  border: 1px solid #166534;
+  color: white;
+  background: #15803d;
+}
+
+.photo-save:hover:not(:disabled) {
+  background: #166534;
+}
+
+.capture-screen-feedback {
+  min-height: 20px;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #cbd5e1;
+  overflow-wrap: anywhere;
+}
+
+.audio-button {
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid #64748b;
+  border-radius: 10px;
+  color: #f8fafc;
+  background: #1e293b;
+}
+
+.camera-toolbar .camera-toolbar-buttons {
+  align-items: center;
+}
+
+/* Ảnh thật của lượt hiện tại nằm trong ô bên phải. */
+.photo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.photo-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.photo-panel-heading h2 {
+  margin: 0;
+}
+
+.photo-panel-heading > span {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+.recent-photo-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+}
+
+.recent-photo-button img {
+  display: block;
+  flex-shrink: 0;
+  width: 84px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.recent-photo-button span {
+  font-size: 0.85rem;
+}
+
+.recent-photo-empty {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes countdown-pulse {
+  from {
+    transform: scale(1.25);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes photo-flash {
+  from { opacity: 0.85; }
+  to { opacity: 0; }
+}
+
+@keyframes review-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 600px) {
+  .capture-screen {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .capture-screen-header .secondary-button,
+  .photo-navigation .secondary-button {
+    min-height: 42px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .photo-decision {
+    width: 52px;
+    height: 46px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .countdown-number,
+  .capture-screen,
+  .capture-flash {
+    animation: none;
+  }
+
+  .capture-flash {
+    opacity: 0;
+  }
+
+  .golden-photo {
+    transition: none;
+  }
+}

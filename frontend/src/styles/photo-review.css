@@ -1,0 +1,345 @@
+.capture-screen.photo-review {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 10;
+
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+
+  min-width: 0;
+  padding: 16px;
+  overflow: hidden;
+
+  border: 1px solid #475569;
+  border-radius: 24px;
+  background: #0f172a;
+}
+
+.photo-review .review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.photo-review .review-heading h2 {
+  margin: 0 0 4px;
+  color: #f8fafc;
+  font-size: 1.25rem;
+}
+
+.photo-review .review-heading p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.photo-review .review-back-button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+
+  width: 64px;
+  height: 52px;
+  padding: 10px;
+
+  border: 1px solid #fdba74;
+  border-radius: 14px;
+  background: #c2410c;
+  color: #fff;
+}
+
+.photo-review .review-back-button svg {
+  width: 34px;
+  height: 34px;
+}
+
+.photo-review .review-back-button:hover:not(:disabled) {
+  background: #9a3412;
+}
+
+.photo-review .review-viewport {
+  display: grid;
+  place-items: center;
+
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.photo-review .review-board {
+  position: relative;
+  flex-shrink: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/*
+ * Mỗi ô chừa 6px mỗi bên:
+ * hai ảnh cạnh nhau cách nhau tổng cộng 12px.
+ */
+.photo-review .review-photo {
+  position: absolute;
+  display: block;
+
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+
+  transition:
+    left 350ms ease,
+    top 350ms ease,
+    width 350ms ease,
+    height 350ms ease,
+    transform 220ms ease,
+    opacity 220ms ease;
+}
+
+.photo-review .review-photo:disabled {
+  opacity: 1;
+}
+
+.photo-review .review-photo-surface {
+  position: relative;
+  display: grid;
+  place-items: center;
+
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #020617;
+}
+
+.photo-review .review-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+
+  /* Giữ đủ ảnh, không cắt và không kéo giãn. */
+  object-fit: contain;
+  object-position: center;
+
+  pointer-events: none;
+}
+
+.photo-review .review-photo:hover .review-photo-surface {
+  border-color: #c4b5fd;
+}
+
+.photo-review .review-photo-number {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+
+  display: grid;
+  place-items: center;
+
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+
+  border-radius: 9px;
+  background: rgb(15 23 42 / 90%);
+  color: #fff;
+  font-size: 0.9rem;
+
+  pointer-events: none;
+}
+
+.photo-review .review-photo.review-photo--leaving {
+  transform: translateY(-110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.photo-review .review-expanded {
+  position: absolute;
+  inset: 6px;
+
+  overflow: hidden;
+  border: 1px solid #475569;
+  border-radius: 14px;
+  background: #020617;
+}
+
+.photo-review .review-expanded img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.photo-review .review-close-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+
+  display: grid;
+  place-items: center;
+
+  width: 48px;
+  height: 48px;
+  padding: 0;
+
+  border: 1px solid #fca5a5;
+  border-radius: 12px;
+  background: #b91c1c;
+  color: #fff;
+
+  font-size: 32px;
+  line-height: 1;
+}
+
+.photo-review .review-message {
+  min-height: 20px;
+  margin: 0;
+  text-align: center;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.photo-review .review-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.photo-review .review-navigation,
+.photo-review .review-decisions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.photo-review .review-arrow-button {
+  display: grid;
+  place-items: center;
+
+  width: 64px;
+  height: 52px;
+  padding: 8px;
+
+  border: 1px solid #64748b;
+  border-radius: 12px;
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.photo-review .review-arrow {
+  width: 30px;
+  height: 32px;
+  fill: currentColor;
+}
+
+.photo-review .review-arrow--up {
+  transform: rotate(180deg);
+}
+
+.photo-review .review-arrow-button:hover:not(:disabled) {
+  background: #334155;
+}
+
+.photo-review .review-position {
+  min-width: 42px;
+  text-align: center;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+
+.photo-review .review-decision {
+  display: grid;
+  place-items: center;
+
+  width: 64px;
+  height: 52px;
+  padding: 0;
+
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #fff;
+
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.photo-review .review-decision--discard {
+  border-color: #fca5a5;
+  background: #b91c1c;
+}
+
+.photo-review .review-decision--discard:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.photo-review .review-decision--save {
+  border-color: #86efac;
+  background: #15803d;
+}
+
+.photo-review .review-decision--save:hover:not(:disabled) {
+  background: #166534;
+}
+
+.photo-review button:focus-visible {
+  outline: 3px solid #facc15;
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .capture-screen.photo-review {
+    padding: 10px;
+    gap: 8px;
+    border-radius: 18px;
+  }
+
+  .photo-review .review-heading h2 {
+    font-size: 1.05rem;
+  }
+
+  .photo-review .review-heading p,
+  .photo-review .review-message {
+    font-size: 0.8rem;
+  }
+
+  .photo-review .review-navigation,
+  .photo-review .review-decisions {
+    gap: 6px;
+  }
+
+  .photo-review .review-back-button,
+  .photo-review .review-arrow-button,
+  .photo-review .review-decision {
+    width: 48px;
+    height: 46px;
+  }
+
+  .photo-review .review-photo {
+    padding: 4px;
+  }
+
+  .photo-review .review-photo-number {
+    top: 4px;
+    left: 4px;
+    min-width: 24px;
+    height: 24px;
+    font-size: 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-review .review-photo {
+    transition: none;
+  }
+}
