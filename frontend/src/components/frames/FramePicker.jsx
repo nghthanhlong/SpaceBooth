@@ -4,28 +4,48 @@ export default function FramePicker({
   onSelect,
 }) {
   return (
-    <div className="frame-grid" aria-label="Danh sách khung ảnh">
-      {frames.map((frame) => (
-        <button
-          key={frame.id}
-          type="button"
-          className="frame-option"
-          aria-pressed={selectedFrameId === frame.id}
-          onClick={() => onSelect(frame.id)}
-        >
-          <span
-            className="frame-preview"
-            style={{ borderColor: frame.color ?? "#64748b" }}
-            aria-hidden="true"
-          />
+    <div className="frame-grid">
+      {frames.map((frame) => {
+        const selected = frame.id === selectedFrameId;
 
-          <span>{frame.name}</span>
+        return (
+          <button
+            key={frame.id}
+            type="button"
+            className="frame-option"
+            aria-pressed={selected}
+            onClick={() => onSelect(frame.id)}
+          >
+            <span
+              className="frame-preview"
+              style={{
+                position: "relative",
+                overflow: "hidden",
+                borderColor: frame.color ?? "transparent",
+              }}
+            >
+              {frame.src && (
+                <img
+                  src={frame.src}
+                  alt=""
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "fill",
+                  }}
+                />
+              )}
+            </span>
 
-          {selectedFrameId === frame.id && (
-            <span className="selected-label">✓ Đang chọn</span>
-          )}
-        </button>
-      ))}
+            <span>{frame.name}</span>
+
+            {selected && (
+              <span className="selected-label">✓ Đang chọn</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

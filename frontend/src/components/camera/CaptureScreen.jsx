@@ -1,64 +1,83 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import BoothIcon from "../layout/BoothIcon";
-import "../../styles/photo-review.css";
-import "../../styles/booth-icons.css";
+import { STICKERS } from "../../data/stickers";
+import { composePhotoStrip, STRIP_TEMPLATES } from "../../utils/photoStrip";
+import "../../styles/strip-review.css";
 
-const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
+async function loadImage(src) {
+  const image = new Image();
+  image.src = src;
+  await image.decode();
+  return image;
+}
 
-function createSlots(count) {
-  const slots = [];
-  let remaining = {
-    left: 0,
-    top: 0,
-    width: 100,
-    height: 100,
-  };
+async function addSticker(file, sticker) {
+  if (!sticker) return file;
 
-  for (let index = 0; index < count; index += 1) {
-    if (index === count - 1) {
-      slots.push({ ...remaining });
-      break;
-    }
+  const url = URL.createObjectURL(file);
+  try {
+    const [strip, icon] = await Promise.all([
+      loadImage(url),
+      loadImage(sticker.src),
+    ]);
+    const canvas = document.createElement("canvas");
+    canvas.width = strip.naturalWidth;
+    canvas.height = strip.naturalHeight;
 
-    const fraction = 1 / GOLDEN_RATIO;
-    const direction = index % 4;
-    const slot = { ...remaining };
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Không thể vẽ sticker.");
+    ctx.drawImage(strip, 0, 0);
 
-    if (direction === 0) {
-      slot.width = remaining.width * fraction;
-      remaining = {
-        ...remaining,
-        left: remaining.left + slot.width,
-        width: remaining.width - slot.width,
-      };
-    } else if (direction === 1) {
-      slot.height = remaining.height * fraction;
-      remaining = {
-        ...remaining,
-        top: remaining.top + slot.height,
-        height: remaining.height - slot.height,
-      };
-    } else if (direction === 2) {
-      slot.width = remaining.width * fraction;
-      slot.left = remaining.left + remaining.width - slot.width;
-      remaining = {
-        ...remaining,
-        width: remaining.width - slot.width,
-      };
-    } else {
-      slot.height = remaining.height * fraction;
-      slot.top = remaining.top + remaining.height - slot.height;
-      remaining = {
-        ...remaining,
-        height: remaining.height - slot.height,
-      };
-    }
+    // Đặt sticker ở góc dưới bên phải và giữ nguyên tỷ lệ.
+    const margin = canvas.width * 0.025;
+    const scale = canvas.width * 0.13 /
+      Math.max(icon.naturalWidth, icon.naturalHeight);
+    const width = icon.naturalWidth * scale;
+    const height = icon.naturalHeight * scale;
 
-    slots.push(slot);
+    ctx.drawImage(
+      icon,
+      canvas.width - margin - width,
+      canvas.height - margin - height,
+      width,
+      height,
+    );
+
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (result) resolve(result);
+        else reject(new Error("Không thể xuất PNG."));
+      }, "image/png");
+    });
+
+    return new File([blob], file.name || "spacebooth-strip.png", {
+      type: "image/png",
+    });
+  } finally {
+    URL.revokeObjectURL(url);
   }
+}
 
-  return slots;
+function CheckPhoto({ checked, number, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      className="strip-review__check"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={`Chọn ảnh ${number}`}
+      disabled={disabled}
+      onClick={onClick}
+      data-cv-selectable
+    >
+      {checked && (
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32">
+          <path fill="currentColor" d="M3 17l6-4 5 6L27 4l2 7c-6 4-10 11-14 17z" />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 export default function CaptureScreen({
@@ -71,277 +90,343 @@ export default function CaptureScreen({
   onSave,
   onDiscard,
 }) {
-  const [firstIndex, setFirstIndex] = useState(0);
+  const [selectedIds, setSelectedIds] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
-  const [leavingId, setLeavingId] = useState(null);
-  const [moving, setMoving] = useState(false);
-  const [boardSize, setBoardSize] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [panel, setPanel] = useState("frame");
+  const [templateId, setTemplateId] = useState("film");
+  const [stickerId, setStickerId] = useState(null);
+  const [preview, setPreview] = useState(null);
 
-  const timerRef = useRef(null);
-  const viewportRef = useRef(null);
+  // Xếp ảnh theo thứ tự chụp.
+  const selected = useMemo(
+    () => photos.filter((photo) => selectedIds.includes(photo.id)),
+    [photos, selectedIds],
+  );
 
-  const count = photos.length;
-  const first = count > 0 ? firstIndex % count : 0;
-  const slots = createSlots(count);
-
-  const expandedPhoto =
-    photos.find((photo) => photo.id === expandedId) ?? null;
-
-  const currentPhoto = expandedPhoto ?? photos[first];
-  const currentNumber = currentPhoto
-    ? photos.findIndex((photo) => photo.id === currentPhoto.id) + 1
-    : 0;
-
-  const backLabel = expandedPhoto
-    ? "Về chọn ảnh"
-    : "Về camera";
-
-  useEffect(() => {
-    return () => window.clearTimeout(timerRef.current);
-  }, []);
+  const expandedIndex = photos.findIndex((photo) => photo.id === expandedId);
+  const expanded = photos[expandedIndex];
+  const currentPreview =
+    editing &&
+    preview?.selected === selected &&
+    preview.templateId === templateId &&
+    preview.stickerId === stickerId
+      ? preview
+      : null;
 
   useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
+    if (!editing || selected.length === 0) return;
 
-    function measure() {
-      const width = Math.min(
-        viewport.clientWidth,
-        viewport.clientHeight * GOLDEN_RATIO,
-      );
+    let active = true;
+    let url;
+    const key = { selected, templateId, stickerId };
 
-      setBoardSize({
-        width,
-        height: width / GOLDEN_RATIO,
+    composePhotoStrip(selected, templateId)
+      .then((file) =>
+        addSticker(file, STICKERS.find((item) => item.id === stickerId)),
+      )
+      .then((file) => {
+        if (!active) return;
+        url = URL.createObjectURL(file);
+        setPreview({ ...key, file, url });
+      })
+      .catch((error) => {
+        if (active) {
+          setPreview({
+            ...key,
+            error: error?.message || "Không thể tạo dải ảnh.",
+          });
+        }
       });
-    }
-
-    measure();
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
-
-    return () => observer.disconnect();
-  }, [host]);
-
-  useEffect(() => {
-    function handleKeyDown(event) {
-      if (event.key === "Escape" && !saving && !moving) {
-        setExpandedId(null);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      active = false;
+      if (url) URL.revokeObjectURL(url);
     };
-  }, [saving, moving]);
+  }, [editing, selected, templateId, stickerId]);
 
-  function handleBack() {
-    if (saving || moving) return;
+  function togglePhoto(id) {
+    setSelectedIds((ids) =>
+      ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id],
+    );
+  }
 
-    if (expandedPhoto) {
+  function goBack() {
+    if (saving) return;
+
+    if (editing) {
+      setPreview(null);
+      setEditing(false);
+    } else if (expanded) {
       setExpandedId(null);
     } else {
       onBack();
     }
   }
 
-  function moveNext() {
-    if (saving || moving || count < 2) return;
+  function discardExpanded() {
+    if (!expanded || saving) return;
 
-    // Đang xem lớn: tiếp tục xem lớn ảnh tiếp theo.
-    if (expandedPhoto) {
-      const nextIndex = currentNumber % count;
-      setFirstIndex(nextIndex);
-      setExpandedId(photos[nextIndex].id);
-      return;
-    }
-
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-
-    window.clearTimeout(timerRef.current);
-    setLeavingId(null);
-
-    // Đổi vị trí ngay để CSS chuyển động cả vị trí và kích thước.
-    setFirstIndex((previous) => (previous + 1) % count);
-
-    if (reducedMotion) return;
-
-    setMoving(true);
-
-    timerRef.current = window.setTimeout(() => {
-      setMoving(false);
-    }, 600);
-  }
-  function discardCurrent() {
-    if (!currentPhoto || saving || moving) return;
-
+    setSelectedIds((ids) => ids.filter((id) => id !== expanded.id));
     setExpandedId(null);
-    setFirstIndex(0);
-    onDiscard(currentPhoto.id);
+    onDiscard(expanded.id);
   }
 
-  function saveCurrent() {
-    if (!currentPhoto || saving || moving) return;
+  if (!host || photos.length === 0) return null;
 
-    onSave([currentPhoto.id]);
-  }
-
-  if (!host || count === 0) return null;
+  const backLabel = editing || expanded ? "Về chọn ảnh" : "Về camera";
+  const heading = editing
+    ? "Chỉnh dải ảnh"
+    : expanded ? `Ảnh số ${expandedIndex + 1}` : "Chọn ảnh của bạn";
 
   return createPortal(
-    <section
-      className="capture-screen photo-review"
-      style={{ height }}
-      aria-label="Chọn ảnh vừa chụp"
-    >
-      <header className="review-heading">
+    <section className="strip-review" style={{ height }} aria-label={heading}>
+      <header className="strip-review__bar">
         <div>
-          <h2>
-            {expandedPhoto ? "Xem ảnh của bạn" : "Chọn ảnh của bạn"}
-          </h2>
-          <p>
-            {count} ảnh chưa lưu · Đang xem ảnh {currentNumber}
+          <h2>{heading}</h2>
+          <p aria-live="polite">
+            Đã chọn {selected.length}/{photos.length} ảnh
           </p>
         </div>
-
         <button
           type="button"
-          className="review-back-button"
-          onClick={handleBack}
-          disabled={saving || moving}
+          className="secondary-button"
           aria-label={backLabel}
           title={backLabel}
+          onClick={goBack}
+          disabled={saving}
           data-cv-selectable
         >
           <BoothIcon direction="left" />
         </button>
       </header>
 
-      <div className="review-viewport" ref={viewportRef}>
-        <div
-          className="review-board"
-          style={
-            boardSize
-              ? {
-                  width: boardSize.width,
-                  height: boardSize.height,
-                }
-              : undefined
-          }
-        >
-          {expandedPhoto ? (
-            <div className="review-expanded">
-              <img
-                src={expandedPhoto.previewUrl}
-                alt={`Ảnh ${currentNumber} phóng lớn`}
-              />
-            </div>
-          ) : (
-            photos.map((photo, index) => {
-              const position = (index - first + count) % count;
-              const slot = slots[position];
-
-              return (
+      <div className="strip-review__body">
+        {editing ? (
+          <div className="strip-review__editor">
+            <div
+              className="strip-review__templates"
+              role="group"
+              aria-label="Công cụ chỉnh dải ảnh"
+            >
+              {[
+                ["frame", "Chọn khung"],
+                ["sticker", "Chọn sticker"],
+              ].map(([id, label]) => (
                 <button
-                  key={photo.id}
+                  key={id}
                   type="button"
-                  className={[
-                    "review-photo",
-                    leavingId === photo.id
-                      ? "review-photo--leaving"
-                      : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  style={{
-                    left: `${slot.left}%`,
-                    top: `${slot.top}%`,
-                    width: `${slot.width}%`,
-                    height: `${slot.height}%`,
-                  }}
-                  onClick={() => setExpandedId(photo.id)}
-                  disabled={saving || moving}
-                  aria-label={`Phóng lớn ảnh ${index + 1}`}
+                  className="secondary-button"
+                  aria-pressed={panel === id}
+                  onClick={() => setPanel(id)}
+                  disabled={saving}
                   data-cv-selectable
                 >
-                  <span className="review-photo-surface">
-                    <img
-                      src={photo.previewUrl}
-                      alt={`Ảnh vừa chụp ${index + 1}`}
-                      draggable="false"
-                    />
+                  {label}
+                </button>
+              ))}
+            </div>
 
-                    <span className="review-photo-number">
-                      {index + 1}
-                    </span>
+            {panel === "frame" ? (
+              <div className="strip-review__templates" role="group" aria-label="Mẫu khung">
+                {STRIP_TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    className="secondary-button"
+                    aria-pressed={templateId === template.id}
+                    onClick={() => setTemplateId(template.id)}
+                    disabled={saving}
+                    data-cv-selectable
+                  >
+                    {template.name}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="strip-review__templates" role="group" aria-label="Sticker dải ảnh">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  aria-pressed={stickerId === null}
+                  onClick={() => setStickerId(null)}
+                  disabled={saving}
+                  data-cv-selectable
+                >
+                  Không thêm sticker
+                </button>
+                {STICKERS.map((sticker) => (
+                  <button
+                    key={sticker.id}
+                    type="button"
+                    className="secondary-button"
+                    aria-label={sticker.name ?? sticker.label ?? sticker.id}
+                    aria-pressed={stickerId === sticker.id}
+                    onClick={() => setStickerId(sticker.id)}
+                    disabled={saving}
+                    data-cv-selectable
+                  >
+                    <img
+                      className="strip-review__sticker-icon"
+                      src={sticker.src}
+                      alt=""
+                      draggable={false}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {currentPreview?.url ? (
+              <img
+                className="strip-review__preview"
+                src={currentPreview.url}
+                alt={`Dải xem trước gồm ${selected.length} ảnh`}
+              />
+            ) : (
+              <p role="status">{currentPreview?.error || "Đang ghép dải ảnh…"}</p>
+            )}
+          </div>
+        ) : expanded ? (
+          <div className="strip-review__expanded">
+            <div className="strip-review__photo">
+              <img
+                src={expanded.previewUrl}
+                alt={`Ảnh ${expandedIndex + 1} phóng lớn`}
+              />
+              <span className="strip-review__number" aria-hidden="true">
+                {expandedIndex + 1}
+              </span>
+            </div>
+            <div className="strip-review__actions strip-review__viewer-actions">
+              <button
+                type="button"
+                className="secondary-button strip-review__viewer-arrow"
+                aria-label="Ảnh trước"
+                title="Ảnh trước"
+                disabled={saving || photos.length < 2}
+                onClick={() =>
+                  setExpandedId(photos[(expandedIndex - 1 + photos.length) % photos.length].id)
+                }
+                data-cv-selectable
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                  <path d="m15 5-7 7 7 7" stroke="currentColor" strokeWidth="3"
+                    strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+
+              <div className="strip-review__viewer-middle">
+                <CheckPhoto
+                checked={selectedIds.includes(expanded.id)}
+                number={expandedIndex + 1}
+                disabled={saving}
+                onClick={() => togglePhoto(expanded.id)}
+              />
+                <button
+                  type="button"
+                  className="secondary-button strip-review__trash"
+                  aria-label="Bỏ ảnh này"
+                  title="Bỏ ảnh này"
+                  onClick={discardExpanded}
+                  disabled={saving}
+                  data-cv-selectable
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6m4-6v6" />
+                  </svg>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="secondary-button strip-review__viewer-arrow"
+                aria-label="Ảnh tiếp theo"
+                title="Ảnh tiếp theo"
+                disabled={saving || photos.length < 2}
+                onClick={() =>
+                  setExpandedId(photos[(expandedIndex + 1) % photos.length].id)
+                }
+                data-cv-selectable
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                  <path d="m9 5 7 7-7 7" stroke="currentColor" strokeWidth="3"
+                    strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="strip-review__grid">
+            {photos.map((photo, index) => (
+              <article key={photo.id} className="strip-review__card">
+                <button
+                  type="button"
+                  className="strip-review__thumb strip-review__photo"
+                  onClick={() => setExpandedId(photo.id)}
+                  aria-label={`Xem lớn ảnh ${index + 1}`}
+                  disabled={saving}
+                  data-cv-selectable
+                >
+                  <img src={photo.previewUrl} alt="" draggable={false} />
+                  <span className="strip-review__number" aria-hidden="true">
+                    {index + 1}
                   </span>
                 </button>
-              );
-            })
-          )}
-        </div>
+                <CheckPhoto
+                  checked={selectedIds.includes(photo.id)}
+                  number={index + 1}
+                  disabled={saving}
+                  onClick={() => togglePhoto(photo.id)}
+                />
+              </article>
+            ))}
+          </div>
+        )}
       </div>
 
-      <p
-        className="review-message"
-        role="status"
-        data-has-message={Boolean(message)}
-      >
-        {message ||
-          (expandedPhoto
-            ? "Bấm quay về để chọn ảnh khác; bấm xoay vòng để xem ảnh tiếp theo."
-            : "Bấm ảnh để xem lớn · × bỏ ảnh · ✓ lưu ảnh đang xem")}
-      </p>
-
-      <footer className="review-footer">
-        <div className="review-navigation">
+      <footer className="strip-review__bar">
+        <p role="status">
+          {message || (editing
+            ? "Ảnh được xếp từ trên xuống theo thứ tự chụp."
+            : "Chọn từ 1 đến 5 ảnh để ghép thành một dải.")}
+        </p>
+        {editing ? (
           <button
             type="button"
-            className="review-arrow-button review-cycle-button"
-            onClick={moveNext}
-            disabled={saving || moving || count < 2}
-            aria-label="Xoay vòng sang ảnh tiếp theo"
-            title="Ảnh tiếp theo"
+            className="primary-button strip-review__save" aria-label={saving ? "Đang lưu dải ảnh" : "Lưu dải ảnh"}
+            disabled={saving || !currentPreview?.file}
+            onClick={() =>
+              onSave(selected.map((photo) => photo.id), currentPreview.file)
+            }
             data-cv-selectable
           >
-            <BoothIcon kind="cycle" />
+            <span className="strip-review__save-icon" aria-hidden="true">
+              <svg focusable="false" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M6 3h12a2 2 0 0 1 2 2v15a1 1 0 0 1-1.6.8L12 16l-6.4 4.8A1 1 0 0 1 4 20V5a2 2 0 0 1 2-2z" />
+              </svg>
+            </span>
+            <span>{saving ? "Đang lưu…" : "SAVE"}</span>
           </button>
-
-          <span className="review-position">
-            {currentNumber}/{count}
-          </span>
-        </div>
-
-        <div className="review-decisions">
+        ) : (
           <button
             type="button"
-            className="review-decision review-decision--discard"
-            onClick={discardCurrent}
-            disabled={saving || moving}
-            aria-label={`Bỏ ảnh ${currentNumber}`}
-            title="Bỏ ảnh đang xem"
+            className="primary-button strip-review__next" aria-label="Tiếp: Chỉnh dải ảnh" title="Chỉnh dải ảnh"
+            disabled={saving || selected.length === 0}
+            onClick={() => {
+              setExpandedId(null);
+              setPanel("frame");
+              setEditing(true);
+            }}
             data-cv-selectable
           >
-            ×
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48">
+              <path fill="currentColor" d="M29 6l16 13-16 13v-9C17 23 9 30 4 42c0-17 9-27 25-28V6z" />
+            </svg>
           </button>
-
-          <button
-            type="button"
-            className="review-decision review-decision--save"
-            onClick={saveCurrent}
-            disabled={saving || moving}
-            aria-label={`Lưu ảnh ${currentNumber}`}
-            title="Lưu ảnh đang xem"
-            data-cv-selectable
-          >
-            {saving ? "…" : "✓"}
-          </button>
-        </div>
+        )}
       </footer>
     </section>,
     host,
