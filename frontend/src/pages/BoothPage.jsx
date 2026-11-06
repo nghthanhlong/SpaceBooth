@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CameraStage from "../components/camera/CameraStage";
-import FramePicker from "../components/frames/FramePicker";
 import StickerPicker from "../components/stickers/StickerPicker";
 import { CvUiContext } from "../components/camera/CvUiContext";
 import useStickers from "../hooks/useStickers";
@@ -12,12 +11,11 @@ import "../styles/booth-icons.css";
 
 const PANELS = [
   { id: "guide", label: "Hướng dẫn" },
-  { id: "frames", label: "Khung" },
   { id: "stickers", label: "Sticker" },
 ];
 
 export default function BoothPage() {
-  const [activePanel, setActivePanel] = useState("frames");
+  const [activePanel, setActivePanel] = useState("guide");
   const [recentPhotos, setRecentPhotos] = useState([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const galleryActionRef = useRef(null);
@@ -27,7 +25,6 @@ export default function BoothPage() {
     setGalleryBusy(busy);
     galleryActionRef.current = openGallery;
   }, []);
-  const [selectedFrameId, setSelectedFrameId] = useState("none");
   const [cameraStatus, setCameraStatus] = useState("loading");
   const [cvStatus, setCvStatus] = useState("waiting");
   const [controlMessage, setControlMessage] = useState(
@@ -68,7 +65,7 @@ export default function BoothPage() {
   } = useStickers();
 
   const selectedFrame =
-    FRAMES.find((item) => item.id === selectedFrameId) ?? FRAMES[0];
+    FRAMES.find((item) => item.id === "none") ?? FRAMES[0];
 
   const getStage = useCallback(
     () => cameraColumnRef.current?.querySelector(".camera-stage"),
@@ -524,18 +521,6 @@ export default function BoothPage() {
                     </>
                   )}
 
-                  {activePanel === "frames" && (
-                    <>
-                      <h2>Chọn khung ảnh</h2>
-                      <div data-cv-selectable>
-                        <FramePicker
-                          frames={FRAMES}
-                          selectedFrameId={selectedFrameId}
-                          onSelect={setSelectedFrameId}
-                        />
-                      </div>
-                    </>
-                  )}
 
                   {activePanel === "stickers" && (
                     <StickerPicker

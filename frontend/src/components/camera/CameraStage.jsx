@@ -15,18 +15,8 @@ import CaptureScreen from "./CaptureScreen";
 import QRDisplay from "./QRDisplay";
 import "../../styles/capture.css";
 
-const COUNTDOWN_MS = 10_000;
+const COUNTDOWN_MS = 1_000;
 const MAX_PHOTOS = 5;
-
-function drawPhotoFrame(ctx, size, frame) {
-  if (!frame?.color) return;
-
-  ctx.save();
-  ctx.strokeStyle = frame.color;
-  ctx.lineWidth = 10;
-  ctx.strokeRect(5, 5, size.width - 10, size.height - 10);
-  ctx.restore();
-}
 
 function drawArming(ctx, size, data, captureProgress) {
   ctx.save();
@@ -82,14 +72,13 @@ function formatSessionDate(timestamp) {
   }).format(date);
 }
 
-export default function CameraStage({ frame }) {
+export default function CameraStage() {
   const bridge = useContext(CvUiContext);
   const audio = useCountdownAudio();
 
   const rootRef = useRef(null);
   const cameraRef = useRef(null);
   const overlayRef = useRef(null);
-  const frameRef = useRef(frame);
   const dataRef = useRef(null);
   const frameAtRef = useRef(0);
   const progressRef = useRef(0);
@@ -135,9 +124,6 @@ export default function CameraStage({ frame }) {
     setPhotos(next);
   }, []);
 
-  useEffect(() => {
-    frameRef.current = frame;
-  }, [frame]);
 
   useEffect(() => {
     bridge?.reportStatus(status, cvStatus);
@@ -289,7 +275,6 @@ export default function CameraStage({ frame }) {
       false,
     );
 
-    drawPhotoFrame(ctx, size, frameRef.current);
 
     playCapture();
     setFlash(true);
@@ -496,7 +481,6 @@ export default function CameraStage({ frame }) {
           phaseRef.current === "live",
         );
 
-        drawPhotoFrame(ctx, size, frameRef.current);
 
         if (phaseRef.current === "live") {
           drawArming(ctx, size, data, progressRef.current);
@@ -536,26 +520,24 @@ export default function CameraStage({ frame }) {
     changePhase("live");
   }
 
-  async function saveSelectedPhotos(selectedIds) {
+  async function saveSelectedPhotos(selectedIds, stripFile) {
     if (savingRef.current || phaseRef.current !== "review") return;
 
     const selected = photosRef.current.filter(
       (photo) => selectedIds.includes(photo.id),
     );
 
-    if (selected.length === 0) {
-      setReviewMessage("Hãy chọn ít nhất một ảnh.");
+    if (selected.length === 0 || selected.length !== selectedIds.length || !(stripFile instanceof File)) {
+      setReviewMessage("Hãy chọn ảnh và đợi tạo xong dải xem trước.");
       return;
     }
 
     savingRef.current = true;
     setSaving(true);
-    setReviewMessage("Đang lưu ảnh đã chọn…");
+    setReviewMessage("Đang lưu dải ảnh…");
 
     try {
-      const result = await createPhotoSession(
-        selected.map((photo) => photo.file),
-      );
+      const result = await createPhotoSession([stripFile]);
 
       if (!mountedRef.current) return;
 
@@ -582,7 +564,7 @@ export default function CameraStage({ frame }) {
       }
 
       setFeedback(
-        `Đã lưu ${selected.length} ảnh. ${
+        `Đã lưu dải gồm ${selected.length} ảnh. ${
           remaining.length > 0
             ? `Còn ${remaining.length} ảnh chưa lưu.`
             : "Có thể bắt đầu lượt chụp mới."
