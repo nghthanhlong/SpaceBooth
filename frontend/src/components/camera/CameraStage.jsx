@@ -15,7 +15,7 @@ import CaptureScreen from "./CaptureScreen";
 import QRDisplay from "./QRDisplay";
 import "../../styles/capture.css";
 
-const COUNTDOWN_MS = 1_000;
+const COUNTDOWN_MS = 5_000;
 const MAX_PHOTOS = 5;
 
 function drawArming(ctx, size, data, captureProgress) {
@@ -93,9 +93,17 @@ export default function CameraStage() {
   const savingRef = useRef(false);
   const flashTimerRef = useRef(null);
 
+  // Tracking fallback & countdown pause refs
+  const countdownPausedRef = useRef(false);
+  const pausedRemainingMsRef = useRef(0);
+  const recoveryStableStartRef = useRef(0);
+
   const [aspectRatio, setAspectRatio] = useState("16 / 9");
   const [phase, setPhase] = useState("live");
   const [seconds, setSeconds] = useState(null);
+  const [countdownPaused, setCountdownPaused] = useState(false);
+  const [countdownPauseMessage, setCountdownPauseMessage] = useState("");
+  const [trackingNotice, setTrackingNotice] = useState("");
   const [flash, setFlash] = useState(false);
   const [photos, setPhotos] = useState([]);
   const [feedback, setFeedback] = useState("");
@@ -110,8 +118,11 @@ export default function CameraStage() {
   const [reviewHeight, setReviewHeight] = useState(480);
   const [savedSession, setSavedSession] = useState(null);
 
-  const { videoRef, status, error, retry } = useWebcam();
+  // Debug Mode state
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugData, setDebugData] = useState(null);
 
+  const { videoRef, status, error, retry } = useWebcam();
   const { playTick, playCapture } = audio;
 
   const changePhase = useCallback((next) => {
@@ -124,6 +135,18 @@ export default function CameraStage() {
     setPhotos(next);
   }, []);
 
+  // Keyboard shortcut: Press D to toggle Debug Mode
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === "d" || e.key === "D") {
+        if (e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
+          setDebugMode((prev) => !prev);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     bridge?.reportStatus(status, cvStatus);
@@ -218,10 +241,17 @@ export default function CameraStage() {
       return;
     }
 
-    bridge?.cancelDrag("Đang chụp, đã hủy sticker chưa dán.");
+    bridge?.resetInteraction?.();
     progressRef.current = 0;
     lastSecondRef.current = 10;
     deadlineRef.current = performance.now() + COUNTDOWN_MS;
+
+    countdownPausedRef.current = false;
+    pausedRemainingMsRef.current = 0;
+    recoveryStableStartRef.current = 0;
+    setCountdownPaused(false);
+    setCountdownPauseMessage("");
+    setTrackingNotice("");
 
     setFeedback("");
     setSeconds(10);
@@ -233,11 +263,29 @@ export default function CameraStage() {
     countdownRequestRef.current = startCountdown;
   }, [startCountdown]);
 
+  /**
+   * Snapshot rendering with robust fallback:
+   * Validates transforms before capture and composites stickers using live or preserved transforms.
+   */
   const takeSnapshot = useCallback(() => {
     if (phaseRef.current !== "countdown") return;
 
+    // Pre-snapshot validation: verify sticker transforms are safe
+    const validation = bridge?.validateSnapshotTransforms?.() ?? { valid: true };
+    if (!validation.valid) {
+      setFeedback(validation.reason || "Không thể chụp do mất dấu vị trí sticker.");
+      countdownPausedRef.current = true;
+      pausedRemainingMsRef.current = 1500;
+      recoveryStableStartRef.current = 0;
+      setCountdownPaused(true);
+      setCountdownPauseMessage("Đã tạm dừng đếm ngược để đảm bảo sticker được đặt chính xác.");
+      return;
+    }
+
     changePhase("capturing");
     setSeconds(null);
+    setCountdownPaused(false);
+    setTrackingNotice("");
 
     const video = videoRef.current;
 
@@ -266,15 +314,16 @@ export default function CameraStage() {
     ctx.restore();
 
     const size = { width: canvas.width, height: canvas.height };
-    const fresh = performance.now() - frameAtRef.current <= 500;
+    const faces = dataRef.current?.faces ?? [];
 
+    // Pass snapshot flag so fallback transforms are safely composited
     bridge?.drawStickers(
       ctx,
       size,
-      fresh ? dataRef.current?.faces ?? [] : [],
+      faces,
       false,
+      { snapshot: true },
     );
-
 
     playCapture();
     setFlash(true);
@@ -323,16 +372,59 @@ export default function CameraStage() {
     snapshotRef.current = takeSnapshot;
   }, [takeSnapshot]);
 
-  // Chỉ một đồng hồ UI quyết định thời điểm tạo ảnh.
+  /**
+   * Countdown timer with robust Face Tracking pause/resume:
+   * If tracking is lost beyond critical timeout, pauses countdown and preserves remaining time.
+   * Resumes seamlessly after tracking is recovered and stable for 500ms.
+   */
   useEffect(() => {
     if (phase !== "countdown") return;
 
     let animationId;
 
     function tick() {
+      const now = performance.now();
+      const trackingStatus = bridge?.getTrackingStatus?.();
+
+      const isTrackingLost = trackingStatus?.state === "TRACKING_LOST";
+
+      if (isTrackingLost && !countdownPausedRef.current) {
+        // Critical timeout exceeded -> PAUSE COUNTDOWN
+        countdownPausedRef.current = true;
+        pausedRemainingMsRef.current = Math.max(0, deadlineRef.current - now);
+        recoveryStableStartRef.current = 0;
+        setCountdownPaused(true);
+        setCountdownPauseMessage(
+          "Đã tạm dừng đếm ngược để đảm bảo sticker được đặt chính xác.",
+        );
+      } else if (countdownPausedRef.current) {
+        // Paused: wait for stable recovery (500ms continuous tracking)
+        const isRecovered =
+          trackingStatus?.state === "TRACKING" || trackingStatus?.state === "RECOVERY";
+
+        if (isRecovered) {
+          if (recoveryStableStartRef.current === 0) {
+            recoveryStableStartRef.current = now;
+          } else if (now - recoveryStableStartRef.current >= 500) {
+            // Stable recovery established! Resume countdown from remaining time
+            countdownPausedRef.current = false;
+            deadlineRef.current = now + pausedRemainingMsRef.current;
+            recoveryStableStartRef.current = 0;
+            setCountdownPaused(false);
+            setCountdownPauseMessage("");
+          }
+        } else {
+          recoveryStableStartRef.current = 0;
+        }
+
+        animationId = requestAnimationFrame(tick);
+        return;
+      }
+
+      // Live countdown calculation
       const remaining = Math.max(
         0,
-        Math.ceil((deadlineRef.current - performance.now()) / 1000),
+        Math.ceil((deadlineRef.current - now) / 1000),
       );
 
       if (remaining <= 0) {
@@ -352,7 +444,7 @@ export default function CameraStage() {
     tick();
 
     return () => cancelAnimationFrame(animationId);
-  }, [phase, playTick]);
+  }, [phase, playTick, bridge]);
 
   useEffect(() => {
     if (status !== "ready") return;
@@ -375,22 +467,9 @@ export default function CameraStage() {
         bridge?.reportFrame(data);
       }),
 
-      engine.on("pinchStart", (point) => {
-        if (
-          active &&
-          (["live", "review", "qr"].includes(phaseRef.current) && !savingRef.current)
-        ) {
-          bridge?.handlePinchStart(point);
-        }
-      }),
-
-      engine.on("pinchEnd", (point) => {
-        if (active) bridge?.handlePinchEnd(point);
-      }),
-
       engine.on("release", () => {
         if (active) {
-          bridge?.cancelDrag("Mất quyền điều khiển, đã hủy kéo sticker.");
+          bridge?.resetInteraction?.("Mất quyền điều khiển.");
         }
       }),
 
@@ -436,6 +515,7 @@ export default function CameraStage() {
     };
   }, [status, videoRef, bridge]);
 
+  // Live video and overlay canvas render loop
   useEffect(() => {
     if (status !== "ready") return;
 
@@ -471,19 +551,40 @@ export default function CameraStage() {
 
         ctx.clearRect(0, 0, width, height);
 
-        const fresh = performance.now() - frameAtRef.current <= 500;
-        const data = fresh ? dataRef.current : null;
+        const data = dataRef.current;
+        const faces = data?.faces ?? [];
 
         bridge?.drawStickers(
           ctx,
           size,
-          data?.faces ?? [],
+          faces,
           phaseRef.current === "live",
         );
 
-
         if (phaseRef.current === "live") {
           drawArming(ctx, size, data, progressRef.current);
+        }
+
+        // Tracking notice for live preview
+        const trackingStatus = bridge?.getTrackingStatus?.();
+        if (trackingStatus?.hasPlacements && phaseRef.current !== "review" && phaseRef.current !== "qr") {
+          if (trackingStatus.state === "TEMPORARY_HOLD") {
+            setTrackingNotice("Đang giữ vị trí sticker...");
+          } else if (trackingStatus.state === "TRACKING_LOST") {
+            setTrackingNotice("Không nhận diện được khuôn mặt. Hãy nhìn về phía camera.");
+          } else if (trackingStatus.state === "RECOVERY") {
+            setTrackingNotice("Đã nhận diện lại khuôn mặt");
+          } else {
+            setTrackingNotice("");
+          }
+        } else {
+          setTrackingNotice("");
+        }
+
+        // Live debug data refresh
+        if (debugMode) {
+          const info = bridge?.getDebugInfo?.();
+          setDebugData(info);
         }
       }
 
@@ -493,7 +594,7 @@ export default function CameraStage() {
     draw();
 
     return () => cancelAnimationFrame(animationId);
-  }, [status, videoRef, bridge]);
+  }, [status, videoRef, bridge, debugMode]);
 
   function retryCamera() {
     if (phaseRef.current === "countdown") {
@@ -509,7 +610,7 @@ export default function CameraStage() {
   const openReview = useCallback(() => {
     if (phaseRef.current !== "live" || photosRef.current.length === 0) return;
 
-    bridge?.cancelDrag();
+    bridge?.resetInteraction?.();
     setReviewMessage("");
     changePhase("review");
   }, [bridge, changePhase]);
@@ -527,7 +628,11 @@ export default function CameraStage() {
       (photo) => selectedIds.includes(photo.id),
     );
 
-    if (selected.length === 0 || selected.length !== selectedIds.length || !(stripFile instanceof File)) {
+    if (
+      selected.length === 0 ||
+      selected.length !== selectedIds.length ||
+      !(stripFile instanceof File)
+    ) {
       setReviewMessage("Hãy chọn ảnh và đợi tạo xong dải xem trước.");
       return;
     }
@@ -551,7 +656,6 @@ export default function CameraStage() {
         (photo) => !savedIds.has(photo.id),
       );
 
-      // Chỉ giải phóng những ảnh đã lưu thành công.
       selected.forEach((photo) => {
         URL.revokeObjectURL(photo.previewUrl);
         urlsRef.current.delete(photo.previewUrl);
@@ -585,13 +689,17 @@ export default function CameraStage() {
           urls: downloadableUrls,
         });
         setReviewMessage("");
-        bridge?.cancelDrag();
+        bridge?.resetInteraction?.();
         changePhase("qr");
       } else if (remaining.length === 0) {
         changePhase("live");
-        setFeedback("Đã lưu ảnh nhưng chưa nhận được liên kết QR. Kiểm tra Album đã lưu.");
+        setFeedback(
+          "Đã lưu ảnh nhưng chưa nhận được liên kết QR. Kiểm tra Album đã lưu.",
+        );
       } else {
-        setReviewMessage("Đã lưu ảnh nhưng chưa nhận được liên kết QR. Kiểm tra Album đã lưu.");
+        setReviewMessage(
+          "Đã lưu ảnh nhưng chưa nhận được liên kết QR. Kiểm tra Album đã lưu.",
+        );
       }
 
       await loadAlbums();
@@ -660,7 +768,87 @@ export default function CameraStage() {
           aria-hidden="true"
         />
 
-        <CountdownOverlay seconds={seconds} />
+        <CountdownOverlay
+          seconds={seconds}
+          paused={countdownPaused}
+          pauseMessage={countdownPauseMessage}
+        />
+
+        {trackingNotice && phase !== "review" && phase !== "qr" && (
+          <div
+            className={`tracking-status-banner ${
+              trackingNotice.includes("giữ")
+                ? "is-hold"
+                : trackingNotice.includes("lại")
+                  ? "is-recovery"
+                  : "is-lost"
+            }`}
+            role="status"
+          >
+            {trackingNotice}
+          </div>
+        )}
+
+        {/* Debug HUD Overlay */}
+        {debugMode && (
+          <aside className="spacebooth-debug-hud" aria-label="Tracking Diagnostics">
+            <div className="debug-hud-header">
+              <h4>CV Diagnostics (Live)</h4>
+              <button
+                type="button"
+                onClick={() => setDebugMode(false)}
+                aria-label="Đóng debug"
+              >
+                ×
+              </button>
+            </div>
+            <div className="debug-hud-body">
+              <p>
+                <strong>Tracking State:</strong>{" "}
+                <span
+                  className={`debug-badge badge-${
+                    debugData?.trackingState || "UNKNOWN"
+                  }`}
+                >
+                  {debugData?.trackingState || "IDLE"}
+                </span>
+              </p>
+              <p>
+                <strong>Frame Age:</strong> {debugData?.frameAgeMs ?? "--"} ms
+              </p>
+              <p>
+                <strong>Active Faces:</strong>{" "}
+                {dataRef.current?.faces?.filter((f) => !f.stale)?.length ?? 0} (IDs:{" "}
+                {dataRef.current?.faces
+                  ?.map((f) => `#${f.id}${f.stale ? "(stale)" : ""}`)
+                  .join(", ") || "none"}
+                )
+              </p>
+              <p>
+                <strong>Attached Stickers:</strong>{" "}
+                {debugData?.placementsCount ?? 0}
+              </p>
+              {(debugData?.preservedTransforms ?? []).map((t) => (
+                <div key={t.stickerId} className="debug-transform-row">
+                  <span>
+                    {t.kind} (Face #{t.faceId}) - [{t.state}]
+                  </span>
+                  <code>
+                    x:{t.x} y:{t.y} w:{t.width} a:{t.angle} (age:{t.ageMs}ms)
+                  </code>
+                </div>
+              ))}
+              <p>
+                <strong>Countdown:</strong> {phase}{" "}
+                {countdownPaused ? "[TẠM DỪNG]" : ""}
+              </p>
+              <p>
+                <strong>Snapshot Valid:</strong>{" "}
+                {debugData?.snapshotValid ? "HỢP LỆ (READY)" : "CHƯA HỢP LỆ"}
+              </p>
+            </div>
+          </aside>
+        )}
 
         {flash && <div className="capture-flash" aria-hidden="true" />}
 
@@ -686,6 +874,16 @@ export default function CameraStage() {
         </span>
 
         <div className="camera-toolbar-buttons">
+          <button
+            type="button"
+            className="debug-button"
+            onClick={() => setDebugMode((prev) => !prev)}
+            title="Bật/Tắt chế độ Debug (Phím tắt: D)"
+            aria-pressed={debugMode}
+          >
+            Debug: {debugMode ? "Bật" : "Tắt"}
+          </button>
+
           <button
             type="button"
             className="audio-button"
@@ -736,7 +934,7 @@ export default function CameraStage() {
         </div>
       )}
 
-<details className="saved-albums">
+      <details className="saved-albums">
         <summary>Album đã lưu</summary>
 
         <div className="saved-albums-heading">

@@ -464,6 +464,19 @@ h2 {
   box-shadow: 0 0 0 7px rgba(244, 114, 182, 0.25);
 }
 
+.cv-ui-cursor.is-pointing {
+  background: #38bdf8;
+  box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.35), 0 0 16px rgba(56, 189, 248, 0.6);
+  transform: translate(-50%, -50%) scale(1.1);
+  transition: transform 0.1s ease, background-color 0.15s ease;
+}
+
+.cv-ui-cursor.is-dwelling {
+  background: #facc15;
+  box-shadow: 0 0 0 7px rgba(250, 204, 21, 0.4), 0 0 20px rgba(250, 204, 21, 0.7);
+  transform: translate(-50%, -50%) scale(1.2);
+}
+
 button.cv-hover {
   outline: 3px solid #facc15;
   outline-offset: 2px;

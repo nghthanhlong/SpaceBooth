@@ -4,6 +4,8 @@ export default function StickerPicker({
   ready,
   error,
   placements,
+  activeKind,
+  selectedKind,
   onPick,
   onRemove,
   onClear,
@@ -13,26 +15,52 @@ export default function StickerPicker({
       <h2>Chọn sticker</h2>
 
       <p className="muted-text">
-        Chụm ngón cái và ngón trỏ để gắp.
-        Giữ để kéo, tách hai ngón để thả.
+        Chỉ ngón trỏ vào sticker và giữ yên 0.7s để tự động gắn lên mặt.
       </p>
 
       {error && <p role="alert">{error}</p>}
 
       <div className="sticker-grid" data-cv-selectable>
-        {STICKERS.map((sticker) => (
-          <button
-            key={sticker.id}
-            type="button"
-            className="sticker-option"
-            data-sticker-kind={sticker.id}
-            disabled={!ready}
-            onClick={() => onPick(sticker.id)}
-          >
-            <img src={sticker.src} alt="" />
-            <span>{sticker.name}</span>
-          </button>
-        ))}
+        {STICKERS.map((sticker) => {
+          const isTargeted = activeKind === sticker.id;
+          const isSelected = selectedKind === sticker.id;
+
+          return (
+            <button
+              key={sticker.id}
+              type="button"
+              className={`sticker-option ${isTargeted ? "is-dwelling" : ""} ${
+                isSelected ? "is-selected" : ""
+              }`}
+              data-sticker-kind={sticker.id}
+              disabled={!ready}
+              onClick={() => onPick(sticker.id)}
+            >
+              <div className="sticker-preview-wrapper">
+                <img src={sticker.src} alt="" />
+                <svg
+                  className="dwell-progress-ring"
+                  viewBox="0 0 100 100"
+                  aria-hidden="true"
+                >
+                  <circle className="dwell-ring-bg" cx="50" cy="50" r="44" />
+                  <circle
+                    className="dwell-ring-fill"
+                    cx="50"
+                    cy="50"
+                    r="44"
+                  />
+                </svg>
+                {isSelected && (
+                  <div className="dwell-snap-badge" aria-hidden="true">
+                    ✓
+                  </div>
+                )}
+              </div>
+              <span>{sticker.name}</span>
+            </button>
+          );
+        })}
       </div>
 
       {!ready && !error && (

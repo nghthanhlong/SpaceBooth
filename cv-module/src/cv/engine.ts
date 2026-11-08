@@ -10,6 +10,7 @@ import { mapFromBox, midpoint, type Box } from "./geometry";
 import { FACE, HAND } from "./landmarks";
 import { OneEuroFilter2D } from "./oneEuro";
 import { DEFAULT_PINCH, PinchDetector, type PinchConfig } from "./pinch";
+import { DEFAULT_POINT, PointDetector, type PointConfig } from "./point";
 import { IdTracker } from "./tracker";
 import type { CvEventMap, FrameSize, GestureName, Point, TrackedFace, TrackedHand } from "./types";
 
@@ -26,6 +27,7 @@ export interface EngineConfig {
   interactionBox: Box;
   cursorFilter: { minCutoff: number; beta: number };
   pinch: PinchConfig;
+  point: PointConfig;
   controller: ControllerConfig;
 }
 
@@ -40,6 +42,7 @@ export const DEFAULT_ENGINE: EngineConfig = {
   interactionBox: { x0: 0.15, y0: 0.1, x1: 0.85, y1: 0.8 },
   cursorFilter: { minCutoff: 1.0, beta: 5.0 },
   pinch: DEFAULT_PINCH,
+  point: DEFAULT_POINT,
   controller: DEFAULT_CONTROLLER,
 };
 
@@ -68,6 +71,7 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
   private faceTracker = new IdTracker<NormalizedLandmark[]>(0.15, 1500);
   private controller: ControllerLock;
   private pinch: PinchDetector;
+  private point: PointDetector;
   private cursorFilter: OneEuroFilter2D;
 
   private running = false;
@@ -87,6 +91,7 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
     this.cfg = { ...DEFAULT_ENGINE, ...cfg };
     this.controller = new ControllerLock(this.cfg.controller);
     this.pinch = new PinchDetector(this.cfg.pinch);
+    this.point = new PointDetector(this.cfg.point);
     this.cursorFilter = new OneEuroFilter2D(this.cfg.cursorFilter.minCutoff, this.cfg.cursorFilter.beta);
   }
 
@@ -178,22 +183,28 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
     const controllerId = controller?.id ?? null;
     if (controllerId !== this.lastControllerId) {
       if (this.pinch.isPinching && this.lastCursor) this.emit("pinchEnd", this.lastCursor);
+      if (this.point.isPointing && this.lastCursor) this.emit("pointEnd", this.lastCursor);
       this.pinch.reset();
+      this.point.reset();
       this.cursorFilter.reset();
       this.lastCursor = null;
       this.lastControllerId = controllerId;
     }
 
-    // 4. Cursor + pinch for the controller only
+    // 4. Cursor, pointing and pinch for the controller only
     let cursor: Point | null = null;
     if (controller) {
-      // Midpoint of thumb and index tips: stays still while the fingers close,
-      // so the cursor does not jump at the moment of grabbing.
       const lm = controller.landmarks;
-      const raw = mapFromBox(midpoint(lm[HAND.THUMB_TIP], lm[HAND.INDEX_TIP]), this.cfg.interactionBox);
+      const pt = this.point.update(lm, size, controller.gesture, controller.gestureScore);
+
+      // Aim from index tip when pointing; midpoint otherwise
+      const aimPoint = pt.pointing ? lm[HAND.INDEX_TIP] : midpoint(lm[HAND.THUMB_TIP], lm[HAND.INDEX_TIP]);
+      const raw = mapFromBox(aimPoint, this.cfg.interactionBox);
       cursor = this.cursorFilter.filter(raw, now);
       this.lastCursor = cursor;
       this.emit("cursor", cursor);
+
+      if (pt.changed) this.emit(pt.pointing ? "pointStart" : "pointEnd", cursor);
 
       const p = this.pinch.update(lm, size);
       if (p.changed) this.emit(p.pinching ? "pinchStart" : "pinchEnd", cursor);
@@ -212,8 +223,10 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
       faces: this.faces,
       controller: this.controller.publicState,
       pinching: this.pinch.isPinching,
+      pointing: this.point.isPointing,
       cursor,
       pinchRatio: controller ? this.pinch.lastRatio : null,
+      pointRatio: controller ? this.point.lastRatio : null,
       size,
       stats: {
         fps: this.fps,
