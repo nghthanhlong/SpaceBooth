@@ -35,6 +35,53 @@ export interface TrackedHand {
   handedness: string;
 }
 
+export type FaceTrackingState =
+  | "TRACKING"
+  | "TEMPORARY_HOLD"
+  | "RECOVERY"
+  | "TRACKING_LOST";
+
+export interface TrackingConfig {
+  /** 0–300ms: short tracking interruption; preserve the last valid transform. */
+  shortInterruptionMs: number;
+  /** 300–1000ms: temporary hold. */
+  temporaryHoldMs: number;
+  /** 1000–2000ms: non-blocking warning threshold. */
+  warningTimeoutMs: number;
+  /** Beyond 2000ms: show tracking-lost warning / pause countdown. */
+  lostTimeoutMs: number;
+  /** Duration in ms for smooth interpolation when recovering tracking. */
+  recoveryInterpolationDurationMs: number;
+  /** Period in ms that tracking must remain stable before resuming countdown. */
+  recoveryStabilityMs: number;
+  /** Maximum transform age in ms permitted for fallback snapshot rendering. */
+  maxSnapshotTransformAgeMs: number;
+}
+
+export const DEFAULT_TRACKING_CONFIG: TrackingConfig = {
+  shortInterruptionMs: 300,
+  temporaryHoldMs: 1000,
+  warningTimeoutMs: 2000,
+  lostTimeoutMs: 2000,
+  recoveryInterpolationDurationMs: 250,
+  recoveryStabilityMs: 500,
+  maxSnapshotTransformAgeMs: 3000,
+};
+
+export interface PreservedStickerTransform {
+  faceId: number;
+  stickerId: string;
+  kind: string;
+  x: number;
+  y: number;
+  width: number;
+  angle: number;
+  lastValidTime: number;
+  trackingState: FaceTrackingState;
+  faceCenter?: Point;
+  eyeDistance?: number;
+}
+
 /** A face with a stable id across frames. Landmarks are normalized and mirrored. */
 export interface TrackedFace {
   id: number;
@@ -61,9 +108,11 @@ export interface FrameInfo {
   faces: TrackedFace[];
   controller: ControllerState;
   pinching: boolean;
+  pointing: boolean;
   /** Normalized cursor position on the stage, null when nobody is in control. */
   cursor: Point | null;
   pinchRatio: number | null;
+  pointRatio?: number | null;
   stats: FrameStats;
   size: FrameSize;
 }
@@ -74,6 +123,8 @@ export interface CvEventMap {
   cursor: Point;
   pinchStart: Point;
   pinchEnd: Point;
+  pointStart: Point;
+  pointEnd: Point;
   /** Progress [0,1] of the open-palm dwell that grants control. 0 means cancelled. */
   dwellProgress: { handId: number; progress: number };
   activate: { handId: number };

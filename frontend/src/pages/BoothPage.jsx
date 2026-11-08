@@ -14,6 +14,9 @@ const PANELS = [
   { id: "stickers", label: "Sticker" },
 ];
 
+const DWELL_DURATION_MS = 700;
+const MAX_STABLE_SPEED = 1.4; // px/ms threshold to prevent dwelling during fast hand swipes
+
 export default function BoothPage() {
   const [activePanel, setActivePanel] = useState("guide");
   const [recentPhotos, setRecentPhotos] = useState([]);
@@ -25,13 +28,15 @@ export default function BoothPage() {
     setGalleryBusy(busy);
     galleryActionRef.current = openGallery;
   }, []);
+
   const [cameraStatus, setCameraStatus] = useState("loading");
   const [cvStatus, setCvStatus] = useState("waiting");
   const [controlMessage, setControlMessage] = useState(
     "Giữ bàn tay mở để nhận quyền điều khiển.",
   );
   const [stickerMessage, setStickerMessage] = useState("");
-  const [draggedKind, setDraggedKind] = useState(null);
+  const [activeDwellKind, setActiveDwellKind] = useState(null);
+  const [selectedSnapKind, setSelectedSnapKind] = useState(null);
   const [scrollState, setScrollState] = useState({
     canUp: false,
     canDown: false,
@@ -43,25 +48,31 @@ export default function BoothPage() {
   const panelScrollRef = useRef(null);
   const panelBodyRef = useRef(null);
   const cursorRef = useRef(null);
-  const dragImageRef = useRef(null);
   const latestFrameRef = useRef(null);
   const lastFrameAtRef = useRef(0);
   const hoveredButtonRef = useRef(null);
   const messageRef = useRef("");
-  const dragRef = useRef(null);
-  const pendingDropRef = useRef(null);
   const mousePointRef = useRef(null);
+
+  // Real-time tracking refs for Dwell
+  const dwellTargetRef = useRef(null);
+  const dwellCooldownUntilRef = useRef(0);
+  const lastPointRef = useRef(null);
+  const lastPointTimeRef = useRef(0);
+  const snapFeedbackTimerRef = useRef(null);
 
   const {
     ready: stickersReady,
     assetError,
     placements,
-    findTarget,
-    commitTarget,
-    clearTarget,
+    trackingState,
+    autoSnapSticker,
     removeSticker,
     clearStickers,
     drawStickers,
+    getTrackingStatus,
+    validateSnapshotTransforms,
+    getDebugInfo,
   } = useStickers();
 
   const selectedFrame =
@@ -78,8 +89,12 @@ export default function BoothPage() {
     const sidebar = sidebarRef.current;
 
     if (
-      !layout || !stage || !sidebar || !point ||
-      !Number.isFinite(point.x) || !Number.isFinite(point.y)
+      !layout ||
+      !stage ||
+      !sidebar ||
+      !point ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y)
     ) {
       return null;
     }
@@ -104,154 +119,112 @@ export default function BoothPage() {
     };
   }, []);
 
+  /**
+   * Generous hit-testing: allows comfortable selection at ~1m distance.
+   */
   const findButtonAt = useCallback((point) => {
-    if (!point) return null;
+    if (!point || !interactionRef.current) return null;
 
-    const button = document.elementFromPoint(point.x, point.y)?.closest("button");
-
+    // 1. Direct hit
+    const direct = document.elementFromPoint(point.x, point.y)?.closest("button");
     if (
-      !button || button.disabled ||
-      !button.closest("[data-cv-selectable]") ||
-      !interactionRef.current?.contains(button)
+      direct &&
+      !direct.disabled &&
+      direct.closest("[data-cv-selectable]") &&
+      interactionRef.current.contains(direct)
     ) {
-      return null;
+      return direct;
     }
 
-    return button;
+    // 2. Proximity hit test with 18px boundary expansion for ~1m interaction
+    const buttons = interactionRef.current.querySelectorAll(
+      "[data-cv-selectable] button:not(:disabled), button[data-cv-selectable]:not(:disabled)",
+    );
+    const HIT_MARGIN = 18;
+    let bestButton = null;
+    let minDistance = Infinity;
+
+    for (const btn of buttons) {
+      const rect = btn.getBoundingClientRect();
+      if (
+        point.x >= rect.left - HIT_MARGIN &&
+        point.x <= rect.right + HIT_MARGIN &&
+        point.y >= rect.top - HIT_MARGIN &&
+        point.y <= rect.bottom + HIT_MARGIN
+      ) {
+        const cx = (rect.left + rect.right) / 2;
+        const cy = (rect.top + rect.bottom) / 2;
+        const d = Math.hypot(point.x - cx, point.y - cy);
+        if (d < minDistance) {
+          minDistance = d;
+          bestButton = btn;
+        }
+      }
+    }
+
+    return bestButton;
   }, []);
 
-  const finishDrag = useCallback(() => {
-    dragRef.current = null;
-    pendingDropRef.current = null;
-    clearTarget();
-    setDraggedKind(null);
-  }, [clearTarget]);
-
-  const cancelDrag = useCallback((message = "Đã hủy kéo sticker.") => {
-    if (dragRef.current) setStickerMessage(message);
-    finishDrag();
-  }, [finishDrag]);
-
-  const startDrag = useCallback((kind, source, handId = null) => {
-    if (!stickersReady) return;
-
-    dragRef.current = { kind, source, handId };
-    pendingDropRef.current = null;
-    clearTarget();
-    setDraggedKind(kind);
-    setStickerMessage(
-      source === "cv"
-        ? "Đưa sticker tới mặt có viền xanh rồi mở tay."
-        : "Di chuột tới mặt có viền xanh rồi bấm để dán.",
-    );
-  }, [clearTarget, stickersReady]);
-
-  const dropAt = useCallback((point, data) => {
-    const drag = dragRef.current;
-    if (!drag || !point || !data) {
-      cancelDrag();
-      return;
+  const resetDwell = useCallback(() => {
+    if (dwellTargetRef.current?.button) {
+      dwellTargetRef.current.button.style.setProperty("--dwell-progress", "0");
+      dwellTargetRef.current.button.classList.remove("is-dwelling");
     }
-
-    const target = findTarget(point, drag.kind, getStage(), data);
-
-    if (commitTarget(target, drag.kind)) {
-      setStickerMessage(`Đã dán sticker lên mặt #${target.face.id}.`);
-      finishDrag();
-    } else {
-      cancelDrag("Không có mặt hợp lệ ở vị trí thả. Đã hủy kéo.");
+    dwellTargetRef.current = null;
+    setActiveDwellKind(null);
+    if (cursorRef.current) {
+      cursorRef.current.classList.remove("is-dwelling");
     }
-  }, [cancelDrag, commitTarget, findTarget, finishDrag, getStage]);
+  }, []);
+
+  const resetInteraction = useCallback((message = "") => {
+    resetDwell();
+    if (message) setStickerMessage(message);
+  }, [resetDwell]);
 
   const reportStatus = useCallback((camera, cv) => {
     setCameraStatus(camera);
     setCvStatus(cv);
   }, []);
 
-  const reportFrame = useCallback((data) => {
-    latestFrameRef.current = data;
-    lastFrameAtRef.current = performance.now();
+  const reportFrame = useCallback(
+    (data) => {
+      latestFrameRef.current = data;
+      lastFrameAtRef.current = performance.now();
 
-    const drag = dragRef.current;
+      let message = "Giữ bàn tay mở để nhận quyền điều khiển.";
 
-    if (drag?.source === "cv") {
-      const sameController =
-        data.controller.kind === "locked" &&
-        data.controller.handId === drag.handId &&
-        data.hands.some((hand) => hand.id === drag.handId);
-
-      if (!sameController) {
-        cancelDrag("Mất quyền hoặc mất dấu tay. Đã hủy kéo sticker.");
-      } else if (pendingDropRef.current) {
-        const pending = pendingDropRef.current;
-
-        // Xác nhận bằng frame mới để tránh coi mất tay là thả chủ động.
-        if (
-          !data.pinching &&
-          performance.now() - pending.at < 500
-        ) {
-          dropAt(getPointerPosition(pending.point), data);
-        } else if (performance.now() - pending.at >= 500) {
-          cancelDrag();
+      if (data.controller.kind === "arming") {
+        message = `Đang nhận quyền: ${Math.round(data.controller.progress * 100)}%`;
+      } else if (data.controller.kind === "locked") {
+        if (data.pointing) {
+          message = "Đang trỏ ngón tay — giữ yên 0.7s để tự động chọn.";
+        } else {
+          message = "Đã nhận quyền — giơ ngón trỏ để trỏ vào sticker.";
         }
       }
-    }
 
-    let message = "Giữ bàn tay mở để nhận quyền điều khiển.";
-
-    if (data.controller.kind === "arming") {
-      message = `Đang nhận quyền: ${Math.round(data.controller.progress * 100)}%`;
-    } else if (data.controller.kind === "locked") {
-      message = data.pinching
-        ? "Đang chụm ngón — mở tay để thả hoặc chọn tiếp."
-        : "Đã nhận quyền — trỏ tới lựa chọn rồi chụm ngón.";
-    }
-
-    if (messageRef.current !== message) {
-      messageRef.current = message;
-      setControlMessage(message);
-    }
-  }, [cancelDrag, dropAt, getPointerPosition]);
-
-  const handlePinchStart = useCallback((point) => {
-    const data = latestFrameRef.current;
-
-    if (
-      data?.controller.kind !== "locked" ||
-      performance.now() - lastFrameAtRef.current > 500 ||
-      dragRef.current
-    ) {
-      return;
-    }
-
-    const button = findButtonAt(getPointerPosition(point));
-    if (!button) return;
-
-    if (button.dataset.stickerKind) {
-      startDrag(button.dataset.stickerKind, "cv", data.controller.handId);
-    } else {
-      button.click();
-    }
-  }, [findButtonAt, getPointerPosition, startDrag]);
-
-  const handlePinchEnd = useCallback((point) => {
-    if (dragRef.current?.source === "cv") {
-      pendingDropRef.current = { point, at: performance.now() };
-    }
-  }, []);
+      if (messageRef.current !== message) {
+        messageRef.current = message;
+        setControlMessage(message);
+      }
+    },
+    [],
+  );
 
   const resetCv = useCallback(() => {
     latestFrameRef.current = null;
     lastFrameAtRef.current = 0;
     messageRef.current = "";
     setControlMessage("Giữ bàn tay mở để nhận quyền điều khiển.");
-    cancelDrag();
+    resetDwell();
 
     if (cursorRef.current) cursorRef.current.hidden = true;
     hoveredButtonRef.current?.classList.remove("cv-hover");
     hoveredButtonRef.current = null;
-  }, [cancelDrag]);
+  }, [resetDwell]);
 
+  // Height sync for layout
   useEffect(() => {
     const stage = getStage();
     const sidebar = sidebarRef.current;
@@ -270,6 +243,7 @@ export default function BoothPage() {
     return () => observer.disconnect();
   }, [getStage]);
 
+  // Sidebar scroll state
   const updateScrollState = useCallback(() => {
     const area = panelScrollRef.current;
     if (!area) return;
@@ -312,102 +286,189 @@ export default function BoothPage() {
     });
   }
 
-  // Dự phòng bằng chuột và phím Escape.
+  // Mouse selection support
+  const handleStickerPick = useCallback(
+    (kind) => {
+      const data = latestFrameRef.current;
+      const stage = getStage();
+      const faces = data?.faces ?? [];
+
+      const result = autoSnapSticker(kind, faces, mousePointRef.current, stage);
+      if (result.success) {
+        const stickerName =
+          STICKERS.find((item) => item.id === kind)?.name ?? kind;
+        setStickerMessage(`Đã dán ${stickerName} lên mặt #${result.faceId}.`);
+        setSelectedSnapKind(kind);
+        window.clearTimeout(snapFeedbackTimerRef.current);
+        snapFeedbackTimerRef.current = window.setTimeout(() => {
+          setSelectedSnapKind(null);
+        }, 1500);
+      } else {
+        setStickerMessage(
+          "Không tìm thấy khuôn mặt phù hợp. Hãy đứng trước camera.",
+        );
+      }
+    },
+    [autoSnapSticker, getStage],
+  );
+
   useEffect(() => {
     function onMove(event) {
       mousePointRef.current = { x: event.clientX, y: event.clientY };
     }
 
-    function onClick(event) {
-      if (dragRef.current?.source !== "mouse") return;
-
-      const stage = getStage();
-
-      if (stage?.contains(event.target)) {
-        if (performance.now() - lastFrameAtRef.current > 500) {
-          cancelDrag("Chưa có dữ liệu mặt mới. Hãy thử lại.");
-          return;
-        }
-
-        dropAt(
-          { x: event.clientX, y: event.clientY },
-          latestFrameRef.current,
-        );
-      }
-    }
-
-    function onKey(event) {
-      if (event.key === "Escape") cancelDrag();
-    }
-
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("click", onClick);
-    window.addEventListener("keydown", onKey);
-
     return () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("click", onClick);
-      window.removeEventListener("keydown", onKey);
+      window.clearTimeout(snapFeedbackTimerRef.current);
     };
-  }, [cancelDrag, dropAt, getStage]);
+  }, []);
 
+  /**
+   * Main interaction loop:
+   * Pointing Detection -> Stable Velocity Check -> 700ms Dwell Progress -> Smart Snap-to-Face.
+   */
   useEffect(() => {
     let animationId;
 
     function draw() {
       const data = latestFrameRef.current;
-      const fresh = performance.now() - lastFrameAtRef.current <= 500;
+      const now = performance.now();
+      const fresh = now - lastFrameAtRef.current <= 500;
+
+      const isLocked = fresh && data?.controller.kind === "locked";
+      const isPointing = isLocked && Boolean(data?.pointing);
 
       const point =
-        fresh && data?.controller.kind === "locked" && data.cursor
-          ? getPointerPosition(data.cursor)
-          : null;
+        isLocked && data?.cursor ? getPointerPosition(data.cursor) : null;
 
+      // Update cursor position & visual styling
       if (cursorRef.current) {
         cursorRef.current.hidden = !point;
 
         if (point) {
           cursorRef.current.style.left = `${point.x}px`;
           cursorRef.current.style.top = `${point.y}px`;
-          cursorRef.current.classList.toggle(
-            "is-pinching",
-            Boolean(data.pinching),
-          );
+          cursorRef.current.classList.toggle("is-pointing", isPointing);
         }
       }
 
-      const drag = dragRef.current;
+      // Hit test target button
+      const button = point ? findButtonAt(point) : null;
 
-      if (drag?.source === "cv" && !fresh) {
-        cancelDrag("Nhận diện bị gián đoạn. Đã hủy kéo.");
-      }
-
-      const dragPoint =
-        drag?.source === "mouse" ? mousePointRef.current : point;
-
-      if (dragImageRef.current) {
-        dragImageRef.current.hidden = !drag || !dragPoint;
-
-        if (drag && dragPoint) {
-          dragImageRef.current.style.left = `${dragPoint.x}px`;
-          dragImageRef.current.style.top = `${dragPoint.y}px`;
-
-          if (fresh) {
-            findTarget(dragPoint, drag.kind, getStage(), data);
-          } else {
-            clearTarget();
-          }
-        } else {
-          clearTarget();
-        }
-      }
-
-      const button = !drag && point ? findButtonAt(point) : null;
-
+      // Update button hover highlight
       if (button !== hoveredButtonRef.current) {
         hoveredButtonRef.current?.classList.remove("cv-hover");
         button?.classList.add("cv-hover");
         hoveredButtonRef.current = button;
+      }
+
+      // Check velocity / speed stability
+      let speed = 0;
+      if (point && lastPointRef.current) {
+        const distMoved = Math.hypot(
+          point.x - lastPointRef.current.x,
+          point.y - lastPointRef.current.y,
+        );
+        const dt = Math.max(1, now - lastPointTimeRef.current);
+        speed = distMoved / dt;
+      }
+      if (point) {
+        lastPointRef.current = point;
+        lastPointTimeRef.current = now;
+      } else {
+        lastPointRef.current = null;
+      }
+
+      // Dwell interaction processing
+      const inCooldown = now < dwellCooldownUntilRef.current;
+      const canDwell =
+        isLocked &&
+        button &&
+        !inCooldown &&
+        (isPointing || speed < 0.6); // Pointing gesture or steady hover
+
+      if (canDwell) {
+        const isSameTarget = dwellTargetRef.current?.button === button;
+
+        if (!isSameTarget) {
+          // Switch to new target
+          if (dwellTargetRef.current?.button) {
+            dwellTargetRef.current.button.style.setProperty("--dwell-progress", "0");
+            dwellTargetRef.current.button.classList.remove("is-dwelling");
+          }
+
+          dwellTargetRef.current = {
+            button,
+            kind: button.dataset.stickerKind || null,
+            startTime: now,
+          };
+
+          if (button.dataset.stickerKind) {
+            setActiveDwellKind(button.dataset.stickerKind);
+          }
+        }
+
+        const dwell = dwellTargetRef.current;
+        if (dwell) {
+          // If moving too quickly, pause/reset dwell progress
+          if (speed > MAX_STABLE_SPEED) {
+            dwell.startTime = now;
+          }
+
+          const elapsed = now - dwell.startTime;
+          const progress = Math.min(1, elapsed / DWELL_DURATION_MS);
+
+          // Update progress ring directly on DOM for 60fps performance
+          button.style.setProperty("--dwell-progress", progress.toFixed(3));
+          button.classList.toggle("is-dwelling", progress > 0.05);
+          cursorRef.current?.classList.toggle("is-dwelling", progress > 0.05);
+
+          // Dwell completed: 700ms held!
+          if (progress >= 1) {
+            button.style.setProperty("--dwell-progress", "0");
+            button.classList.remove("is-dwelling");
+            cursorRef.current?.classList.remove("is-dwelling");
+
+            dwellCooldownUntilRef.current = now + 900;
+            dwellTargetRef.current = null;
+            setActiveDwellKind(null);
+
+            if (dwell.kind) {
+              // Smart Snap-to-Face!
+              const stage = getStage();
+              const faces = data?.faces ?? [];
+              const result = autoSnapSticker(dwell.kind, faces, point, stage);
+
+              if (result.success) {
+                const stickerName =
+                  STICKERS.find((item) => item.id === dwell.kind)?.name ??
+                  dwell.kind;
+                setStickerMessage(
+                  `Đã gắn ${stickerName} lên mặt #${result.faceId}!`,
+                );
+                setSelectedSnapKind(dwell.kind);
+
+                window.clearTimeout(snapFeedbackTimerRef.current);
+                snapFeedbackTimerRef.current = window.setTimeout(() => {
+                  setSelectedSnapKind(null);
+                }, 1500);
+              } else {
+                setStickerMessage(
+                  "Không tìm thấy khuôn mặt phù hợp. Hãy đứng trước camera.",
+                );
+              }
+            } else {
+              // Regular UI button dwell activation
+              button.click();
+            }
+          }
+        }
+      } else {
+        // Not dwelling on any button
+        if (dwellTargetRef.current) {
+          resetDwell();
+        }
       }
 
       animationId = requestAnimationFrame(draw);
@@ -418,34 +479,50 @@ export default function BoothPage() {
     return () => {
       cancelAnimationFrame(animationId);
       hoveredButtonRef.current?.classList.remove("cv-hover");
+      resetDwell();
     };
   }, [
-    cancelDrag, clearTarget, findButtonAt,
-    findTarget, getPointerPosition, getStage,
+    autoSnapSticker,
+    findButtonAt,
+    getPointerPosition,
+    getStage,
+    resetDwell,
   ]);
 
-  const cvBridge = useMemo(() => ({
-    reportFrame,
-    reportStatus,
-    handlePinchStart,
-    handlePinchEnd,
-    resetCv,
-    cancelDrag,
-    drawStickers,
-    clearStickers,
-    reportPhotos,
-  }), [
-    reportFrame, reportStatus, handlePinchStart,
-    handlePinchEnd, resetCv, cancelDrag,
-    drawStickers, clearStickers, reportPhotos,
-  ]);
+  const cvBridge = useMemo(
+    () => ({
+      reportFrame,
+      reportStatus,
+      resetCv,
+      resetInteraction,
+      drawStickers,
+      clearStickers,
+      reportPhotos,
+      getTrackingStatus,
+      validateSnapshotTransforms,
+      getDebugInfo,
+    }),
+    [
+      reportFrame,
+      reportStatus,
+      resetCv,
+      resetInteraction,
+      drawStickers,
+      clearStickers,
+      reportPhotos,
+      getTrackingStatus,
+      validateSnapshotTransforms,
+      getDebugInfo,
+    ],
+  );
 
   const ready = cameraStatus === "ready" && cvStatus === "ready";
-  const dragSticker = STICKERS.find((item) => item.id === draggedKind);
 
   const statusLabel =
     cameraStatus !== "ready"
-      ? cameraStatus === "error" ? "Camera cần kiểm tra" : "Đang mở camera"
+      ? cameraStatus === "error"
+        ? "Camera cần kiểm tra"
+        : "Đang mở camera"
       : cvStatus === "ready"
         ? "Camera và nhận diện sẵn sàng"
         : cvStatus === "error"
@@ -467,7 +544,14 @@ export default function BoothPage() {
         </header>
 
         <div className="interaction-hint" role="status">
-          {ready ? (draggedKind ? stickerMessage : controlMessage) : "Có thể dùng chuột để chọn công cụ."}
+          {ready
+            ? stickerMessage ||
+              (placements.length > 0 && trackingState === "TEMPORARY_HOLD"
+                ? "Đang giữ vị trí sticker..."
+                : placements.length > 0 && trackingState === "TRACKING_LOST"
+                  ? "Không nhận diện được khuôn mặt. Hãy nhìn về phía camera."
+                  : controlMessage)
+            : "Có thể dùng chuột để chọn công cụ."}
         </div>
 
         <div ref={interactionRef} className="booth-layout">
@@ -489,7 +573,7 @@ export default function BoothPage() {
                     className="panel-button"
                     aria-pressed={activePanel === panel.id}
                     onClick={() => {
-                      cancelDrag();
+                      resetDwell();
                       setActivePanel(panel.id);
                     }}
                   >
@@ -504,30 +588,32 @@ export default function BoothPage() {
                 onScroll={updateScrollState}
                 tabIndex={0}
                 role="region"
-                aria-label={PANELS.find((item) => item.id === activePanel)?.label}
+                aria-label={
+                  PANELS.find((item) => item.id === activePanel)?.label
+                }
               >
                 <div ref={panelBodyRef} className="panel-content">
                   {activePanel === "guide" && (
                     <>
                       <h2>Cách sử dụng</h2>
                       <ol className="instructions">
-                        <li>Giữ bàn tay mở để nhận quyền.</li>
-                        <li>Trỏ tới nút và chụm ngón để chọn.</li>
-                        <li>Gắp sticker, giữ chụm để kéo.</li>
-                        <li>Đưa tới mặt viền xanh và mở tay để dán.</li>
-                        <li>Thả ngoài mặt để hủy kéo.</li>
-                        <li>Giơ chữ V để chụp ảnh.</li>
+                        <li>Giữ bàn tay mở để nhận quyền điều khiển.</li>
+                        <li>Giơ ngón trỏ để trỏ vào sticker hoặc nút.</li>
+                        <li>Giữ yên ngón trỏ trong 0.7s để chọn.</li>
+                        <li>Sticker tự động dán lên khuôn mặt của bạn!</li>
+                        <li>Giơ chữ V để đếm ngược chụp ảnh.</li>
                       </ol>
                     </>
                   )}
-
 
                   {activePanel === "stickers" && (
                     <StickerPicker
                       ready={stickersReady}
                       error={assetError}
                       placements={placements}
-                      onPick={(kind) => startDrag(kind, "mouse")}
+                      activeKind={activeDwellKind}
+                      selectedKind={selectedSnapKind}
+                      onPick={handleStickerPick}
                       onRemove={removeSticker}
                       onClear={clearStickers}
                     />
@@ -576,22 +662,22 @@ export default function BoothPage() {
                     src={recentPhotos[recentPhotos.length - 1].previewUrl}
                     alt="Ảnh chụp gần nhất"
                   />
-                  <span className="recent-photo-open" aria-hidden="true"><BoothIcon direction="right" /></span>
+                  <span className="recent-photo-open" aria-hidden="true">
+                    <BoothIcon direction="right" />
+                  </span>
                 </button>
               ) : (
-                <p className="recent-photo-empty">Chưa có ảnh trong lượt này.</p>
+                <p className="recent-photo-empty">
+                  Chưa có ảnh trong lượt này.
+                </p>
               )}
             </section>
           </aside>
         </div>
 
-        <div ref={cursorRef} className="cv-ui-cursor" aria-hidden="true" hidden />
-
-        <img
-          ref={dragImageRef}
-          src={dragSticker?.src}
-          className="drag-sticker-preview"
-          alt=""
+        <div
+          ref={cursorRef}
+          className="cv-ui-cursor"
           aria-hidden="true"
           hidden
         />
