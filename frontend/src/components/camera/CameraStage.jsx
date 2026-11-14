@@ -72,7 +72,11 @@ function formatSessionDate(timestamp) {
   }).format(date);
 }
 
-export default function CameraStage() {
+export default function CameraStage({
+  frame: _frame,
+  controllerMode = "cold",
+  onControllerModeChange,
+}) {
   const bridge = useContext(CvUiContext);
   const audio = useCountdownAudio();
 
@@ -80,6 +84,8 @@ export default function CameraStage() {
   const cameraRef = useRef(null);
   const overlayRef = useRef(null);
   const dataRef = useRef(null);
+  const engineRef = useRef(null);
+  const controllerModeRef = useRef(controllerMode);
   const frameAtRef = useRef(0);
   const progressRef = useRef(0);
   const mountedRef = useRef(false);
@@ -129,6 +135,13 @@ export default function CameraStage() {
     phaseRef.current = next;
     setPhase(next);
   }, []);
+
+  useEffect(() => {
+    controllerModeRef.current = controllerMode;
+    if (engineRef.current) {
+      engineRef.current.setControllerMode(controllerMode);
+    }
+  }, [controllerMode]);
 
   const updatePhotos = useCallback((next) => {
     photosRef.current = next;
@@ -358,6 +371,8 @@ export default function CameraStage() {
 
       setReviewMessage("");
       setFeedback("Đã chụp ảnh. Bấm ô Ảnh vừa chụp để xem.");
+      engineRef.current?.setControllerMode("warm");
+      onControllerModeChange?.("warm");
       changePhase("live");
     }, "image/png");
   }, [
@@ -366,6 +381,7 @@ export default function CameraStage() {
     changePhase,
     playCapture,
     updatePhotos,
+    onControllerModeChange,
   ]);
 
   useEffect(() => {
@@ -457,6 +473,8 @@ export default function CameraStage() {
         countdownMs: COUNTDOWN_MS,
       },
     });
+    engineRef.current = engine;
+    engine.setControllerMode(controllerModeRef.current);
 
     const unsubs = [
       engine.on("frame", (data) => {
@@ -509,6 +527,9 @@ export default function CameraStage() {
       active = false;
       unsubs.forEach((unsubscribe) => unsubscribe());
       engine.stop();
+      if (engineRef.current === engine) {
+        engineRef.current = null;
+      }
       dataRef.current = null;
       progressRef.current = 0;
       bridge?.resetCv();
@@ -618,6 +639,8 @@ export default function CameraStage() {
   function backToCamera() {
     if (savingRef.current) return;
     setReviewMessage("");
+    engineRef.current?.setControllerMode("warm");
+    onControllerModeChange?.("warm");
     changePhase("live");
   }
 
@@ -720,7 +743,12 @@ export default function CameraStage() {
 
     setSavedSession(null);
     setReviewMessage("");
-    changePhase(photosRef.current.length > 0 ? "review" : "live");
+    const nextPhase = photosRef.current.length > 0 ? "review" : "live";
+    if (nextPhase === "live") {
+      engineRef.current?.setControllerMode("warm");
+      onControllerModeChange?.("warm");
+    }
+    changePhase(nextPhase);
   }
 
   function discardPhoto(id) {

@@ -11,7 +11,12 @@ export {
   type StickerKind,
   type SnapTarget,
 } from "./snap";
-export { DEFAULT_CONTROLLER, type ControllerConfig } from "./controller";
+export {
+  DEFAULT_CONTROLLER,
+  ControllerLock,
+  type ControllerConfig,
+  type AcquireControllerOptions,
+} from "./controller";
 export { DEFAULT_PINCH, type PinchConfig } from "./pinch";
 export { DEFAULT_POINT, PointDetector, type PointConfig } from "./point";
 export { FACE, HAND } from "./landmarks";

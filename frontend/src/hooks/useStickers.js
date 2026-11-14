@@ -276,7 +276,27 @@ export default function useStickers(customConfig = {}) {
         const image = imagesRef.current.get(item.kind);
         if (!image) continue;
 
-        const face = faces.find((candidate) => candidate.id === item.faceId);
+        let face = faces.find((candidate) => candidate.id === item.faceId);
+
+        // Position-based re-identification: when the tracked faceId is gone entirely
+        // (IdTracker purged it), try to match a nearby active face by nose position.
+        if (!face) {
+          const poseKeyEarly = item.id;
+          const preservedEarly = preservedTransformsRef.current.get(poseKeyEarly);
+          if (preservedEarly && preservedEarly.faceCenter && isTransformFinite(preservedEarly)) {
+            const radius = Math.max(preservedEarly.eyeDistance * 1.5, 120);
+            const reidentified = faces.find((f) => {
+              if (f.stale || !f.landmarks || !f.landmarks.length) return false;
+              const nosePx = toPx(f.landmarks[FACE.NOSE_TIP], size);
+              return dist(nosePx, preservedEarly.faceCenter) <= radius;
+            });
+            if (reidentified) {
+              face = reidentified;
+              item.faceId = reidentified.id;
+            }
+          }
+        }
+
         const isFaceActive = Boolean(face && !face.stale && face.landmarks && face.landmarks.length > 0);
 
         const poseKey = item.id;
