@@ -4,7 +4,12 @@ import {
   GestureRecognizer,
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
-import { ControllerLock, DEFAULT_CONTROLLER, type ControllerConfig } from "./controller";
+import {
+  ControllerLock,
+  DEFAULT_CONTROLLER,
+  type ControllerConfig,
+  type AcquireControllerOptions,
+} from "./controller";
 import { Emitter } from "./emitter";
 import { mapFromBox, midpoint, type Box } from "./geometry";
 import { FACE, HAND } from "./landmarks";
@@ -67,8 +72,12 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
   private gesture: GestureRecognizer | null = null;
   private face: FaceLandmarker | null = null;
 
-  private handTracker = new IdTracker<RawHand>(0.15, 1500);
-  private faceTracker = new IdTracker<NormalizedLandmark[]>(0.15, 1500);
+  private handTracker = new IdTracker<RawHand>(0.15, 2500);
+  // maxMissedMs must be >= lostTimeoutMs (2000ms) in DEFAULT_TRACKING_CONFIG so that
+  // the face track stays alive long enough for useStickers to either recover it
+  // naturally or re-identify it by position (Task 1). With faceEveryNFrames=2 there
+  // is an extra ~33ms polling lag per frame, so 2500ms gives comfortable headroom.
+  private faceTracker = new IdTracker<NormalizedLandmark[]>(0.15, 2500);
   private controller: ControllerLock;
   private pinch: PinchDetector;
   private point: PointDetector;
@@ -123,6 +132,20 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
   /** Gives up control on purpose (e.g. after the photo is taken). */
   releaseControl(): void {
     for (const e of this.controller.release()) this.emit(e.type, e.payload as never);
+  }
+
+  /** Configures lock acquisition options (e.g. bypass hold-time for warm re-entry). */
+  acquireLock(options?: AcquireControllerOptions): void {
+    this.controller.acquireLock(options);
+  }
+
+  /** Sets controller lock mode to 'cold' (default hold time) or 'warm' (fast re-entry). */
+  setControllerMode(mode: "cold" | "warm", options?: AcquireControllerOptions): void {
+    const requiredHoldMs =
+      mode === "warm"
+        ? (options?.requiredHoldMs ?? 200)
+        : (options?.requiredHoldMs ?? this.cfg.controller.dwellMs);
+    this.controller.acquireLock({ requiredHoldMs });
   }
 
   private scheduleNextFrame() {

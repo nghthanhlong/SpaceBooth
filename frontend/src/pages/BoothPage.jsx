@@ -31,6 +31,7 @@ export default function BoothPage() {
 
   const [cameraStatus, setCameraStatus] = useState("loading");
   const [cvStatus, setCvStatus] = useState("waiting");
+  const [controllerMode, setControllerMode] = useState("cold");
   const [controlMessage, setControlMessage] = useState(
     "Giữ bàn tay mở để nhận quyền điều khiển.",
   );
@@ -556,7 +557,11 @@ export default function BoothPage() {
 
         <div ref={interactionRef} className="booth-layout">
           <div ref={cameraColumnRef} className="camera-column">
-            <CameraStage frame={selectedFrame} />
+            <CameraStage
+              frame={selectedFrame}
+              controllerMode={controllerMode}
+              onControllerModeChange={setControllerMode}
+            />
           </div>
 
           <aside ref={sidebarRef} className="booth-sidebar">

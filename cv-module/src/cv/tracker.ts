@@ -9,6 +9,15 @@ export interface Track<T> {
 }
 
 /**
+ * When two competing matches share the same detection (i) or the same track (j)
+ * and their distances are within this ratio of each other, neither match is
+ * accepted. This prevents ID swaps when two faces stand close together.
+ * Example: ratio 0.7 means a competing pair is "close enough" if
+ * competitor.d < winner.d / 0.7  →  competitor.d / winner.d < ~1.43×.
+ */
+const AMBIGUITY_RATIO = 0.7;
+
+/**
  * Gives detections a stable id across frames.
  * MediaPipe on the web does not return persistent ids, so we match each new
  * detection to the nearest existing track (greedy nearest-neighbor).
@@ -41,8 +50,23 @@ export class IdTracker<T> {
     const usedTracks = new Set<number>();
     const seen: Track<T>[] = [];
 
-    for (const { i, j } of pairs) {
+    for (let k = 0; k < pairs.length; k++) {
+      const { i, j, d } = pairs[k];
       if (usedItems.has(i) || usedTracks.has(j)) continue;
+
+      // Ambiguity check: if another unused pair competes for the same detection (i)
+      // or the same track (j) and is nearly as good, skip this match entirely.
+      // This prevents ID swaps when two faces are close together.
+      const isAmbiguous = pairs.some(
+        (other, idx) =>
+          idx !== k &&
+          !usedItems.has(other.i) &&
+          !usedTracks.has(other.j) &&
+          (other.i === i || other.j === j) &&
+          other.d < d / AMBIGUITY_RATIO,
+      );
+      if (isAmbiguous) continue;
+
       usedItems.add(i);
       usedTracks.add(j);
       const track = this.tracks[j];

@@ -13,6 +13,8 @@
     "typecheck": "tsc",
     "preview": "vite preview",
     "setup": "node scripts/setup-assets.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "node scripts/setup-assets.mjs"
   },
   "dependencies": {

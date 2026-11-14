@@ -23,6 +23,11 @@ export interface ControllerConfig {
   activationZone: Box | null;
 }
 
+export interface AcquireControllerOptions {
+  /** How long the open palm must be held to take control. Default: cfg.dwellMs (1500ms). */
+  requiredHoldMs?: number;
+}
+
 export const DEFAULT_CONTROLLER: ControllerConfig = {
   dwellMs: 1500,
   gestureMinScore: 0.6,
@@ -56,17 +61,43 @@ export class ControllerLock {
   private captureStart: number | null = null;
   private cooldownUntil = 0;
   private countdown: { end: number; secondsLeft: number; victoryHands: number } | null = null;
+  private acquireOptions: AcquireControllerOptions = {};
 
   constructor(private cfg: ControllerConfig = DEFAULT_CONTROLLER) {}
 
-  update(hands: TrackedHand[], now: number): { controller: TrackedHand | null; events: CvEvent[] } {
+  /**
+   * Configures lock acquisition options (e.g. for warm re-entry).
+   * Passing { requiredHoldMs: 0 } or a low value like 100ms allows fast re-acquisition.
+   */
+  acquireLock(options: AcquireControllerOptions = {}): void {
+    this.acquireOptions = { ...options };
+  }
+
+  getAcquireOptions(): AcquireControllerOptions {
+    return { ...this.acquireOptions };
+  }
+
+  update(
+    hands: TrackedHand[],
+    now: number,
+    options?: AcquireControllerOptions,
+  ): { controller: TrackedHand | null; events: CvEvent[] } {
     const events: CvEvent[] = [];
     const byId = (id: number) => hands.find((h) => h.id === id) ?? null;
+    const effectiveHoldMs =
+      options?.requiredHoldMs ?? this.acquireOptions.requiredHoldMs ?? this.cfg.dwellMs;
 
     switch (this.state.kind) {
       case "idle": {
         const candidate = hands.find((h) => this.is(h, "Open_Palm") && this.inZone(h));
-        if (candidate) this.state = { kind: "arming", handId: candidate.id, start: now, lastOk: now, progress: 0 };
+        if (candidate) {
+          if (effectiveHoldMs <= 0) {
+            events.push({ type: "activate", payload: { handId: candidate.id } });
+            this.state = { kind: "locked", handId: candidate.id, lastSeen: now };
+          } else {
+            this.state = { kind: "arming", handId: candidate.id, start: now, lastOk: now, progress: 0 };
+          }
+        }
         break;
       }
       case "arming": {
@@ -78,7 +109,7 @@ export class ControllerLock {
           this.state = { kind: "idle" };
           break;
         }
-        const progress = Math.min((now - this.state.start) / this.cfg.dwellMs, 1);
+        const progress = effectiveHoldMs <= 0 ? 1 : Math.min((now - this.state.start) / effectiveHoldMs, 1);
         this.state.progress = progress;
         events.push({ type: "dwellProgress", payload: { handId: this.state.handId, progress } });
         if (progress >= 1) {
