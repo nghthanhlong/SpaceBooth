@@ -7,6 +7,8 @@ export {
   findSnapTarget,
   placeSticker,
   STICKER_ANCHORS,
+  STICKER_SLOTS,
+  type StickerSlot,
   type Placement,
   type StickerKind,
   type SnapTarget,
