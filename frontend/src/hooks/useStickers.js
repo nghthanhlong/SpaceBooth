@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_TRACKING_CONFIG,
   FACE,
+  STICKER_SLOTS,
   findSmartSnapTarget,
   findSnapTarget,
   placeSticker,
@@ -102,6 +103,22 @@ export default function useStickers(customConfig = {}) {
   const commitTarget = useCallback((target, kind) => {
     if (!target) return false;
 
+    const replaced = placementsRef.current.filter(
+      (previous) =>
+        previous.faceId === target.face.id &&
+        STICKER_SLOTS[previous.kind] === STICKER_SLOTS[kind],
+    );
+    targetRef.current = null;
+    if (replaced.length === 1 && replaced[0].kind === kind) {
+      return "unchanged";
+    }
+
+    for (const previous of replaced) {
+      preservedTransformsRef.current.delete(previous.id);
+      smoothedPosesRef.current.delete(previous.id);
+      recoveryStateRef.current.delete(previous.id);
+    }
+
     const item = {
       id: `${target.face.id}:${kind}`,
       faceId: target.face.id,
@@ -109,13 +126,12 @@ export default function useStickers(customConfig = {}) {
     };
 
     const next = [
-      ...placementsRef.current.filter((previous) => previous.id !== item.id),
+      ...placementsRef.current.filter((previous) => !replaced.includes(previous)),
       item,
     ];
 
     placementsRef.current = next;
     setPlacements(next);
-    targetRef.current = null;
 
     // Trigger snapping animation effect
     snapAnimationRef.current = {
@@ -125,7 +141,7 @@ export default function useStickers(customConfig = {}) {
       duration: 400,
     };
 
-    return true;
+    return replaced.length > 0 ? "replaced" : "added";
   }, []);
 
   const autoSnapSticker = useCallback(
@@ -164,7 +180,8 @@ export default function useStickers(customConfig = {}) {
 
       const committed = commitTarget(snapTarget, kind);
       return {
-        success: committed,
+        success: Boolean(committed),
+        action: committed,
         faceId: snapTarget.face.id,
         kind,
       };

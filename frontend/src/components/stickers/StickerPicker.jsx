@@ -16,6 +16,7 @@ export default function StickerPicker({
 
       <p className="muted-text">
         Chỉ ngón trỏ vào sticker và giữ yên 0.7s để tự động gắn lên mặt.
+        {" "}Sticker cùng vùng sẽ thay thế nhau; mũ và tai thỏ dùng chung vùng đầu.
       </p>
 
       {error && <p role="alert">{error}</p>}

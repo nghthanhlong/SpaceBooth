@@ -32,10 +32,24 @@ lerna-debug.log*
 # =========================
 # AI Assistants
 # =========================
+# Codex / agent instructions
+AGENTS.md
+AGENTS.override.md
+.agents/
+.codex/
+
 # Claude Code
 CLAUDE.md
 CLAUDE.local.md
 .claude/
+
+# Gemini / Cursor / GitHub Copilot
+GEMINI.md
+.gemini/
+.cursor/
+.cursorrules
+.github/copilot-instructions.md
+.github/instructions/
 
 # =========================
 # Editor / IDE

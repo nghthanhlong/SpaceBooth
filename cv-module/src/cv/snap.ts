@@ -4,6 +4,16 @@ import type { FrameSize, Point, TrackedFace } from "./types";
 
 export type StickerKind = "glasses" | "bunnyEars" | "hat" | "lips";
 
+export type StickerSlot = "head" | "eyes" | "mouth";
+
+/** Stickers in the same slot replace one another on a single face. */
+export const STICKER_SLOTS: Record<StickerKind, StickerSlot> = {
+  glasses: "eyes",
+  bunnyEars: "head",
+  hat: "head",
+  lips: "mouth",
+};
+
 /**
  * Where a sticker sits on a face.
  * `offset` and `widthScale` are in units of the eye distance and in the face's

@@ -17,6 +17,13 @@ const PANELS = [
 const DWELL_DURATION_MS = 700;
 const MAX_STABLE_SPEED = 1.4; // px/ms threshold to prevent dwelling during fast hand swipes
 
+function stickerResultMessage(result, kind) {
+  const name = STICKERS.find((item) => item.id === kind)?.name ?? kind;
+  if (result.action === "unchanged") return `${name} đã có trên mặt #${result.faceId}.`;
+  const verb = result.action === "replaced" ? "Đã đổi sang" : "Đã dán";
+  return `${verb} ${name} trên mặt #${result.faceId}.`;
+}
+
 export default function BoothPage() {
   const [activePanel, setActivePanel] = useState("guide");
   const [recentPhotos, setRecentPhotos] = useState([]);
@@ -296,9 +303,7 @@ export default function BoothPage() {
 
       const result = autoSnapSticker(kind, faces, mousePointRef.current, stage);
       if (result.success) {
-        const stickerName =
-          STICKERS.find((item) => item.id === kind)?.name ?? kind;
-        setStickerMessage(`Đã dán ${stickerName} lên mặt #${result.faceId}.`);
+        setStickerMessage(stickerResultMessage(result, kind));
         setSelectedSnapKind(kind);
         window.clearTimeout(snapFeedbackTimerRef.current);
         snapFeedbackTimerRef.current = window.setTimeout(() => {
@@ -442,12 +447,7 @@ export default function BoothPage() {
               const result = autoSnapSticker(dwell.kind, faces, point, stage);
 
               if (result.success) {
-                const stickerName =
-                  STICKERS.find((item) => item.id === dwell.kind)?.name ??
-                  dwell.kind;
-                setStickerMessage(
-                  `Đã gắn ${stickerName} lên mặt #${result.faceId}!`,
-                );
+                setStickerMessage(stickerResultMessage(result, dwell.kind));
                 setSelectedSnapKind(dwell.kind);
 
                 window.clearTimeout(snapFeedbackTimerRef.current);
