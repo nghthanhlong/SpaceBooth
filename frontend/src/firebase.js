@@ -10,6 +10,8 @@ import {
   query,
   orderBy,
   limit,
+  deleteDoc, // Dùng để xóa document
+  where      // Dùng để lọc theo điều kiện
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -60,6 +62,7 @@ export const createPhotoSession = async (filesArray) => {
       allPhotos: uploadedUrls,
       selectedPhotos: [],
       finalPrintUrl: "",
+      status: "done", 
       createdAt: serverTimestamp(),
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     });
@@ -97,4 +100,25 @@ export const getPhotoSessions = async () => {
     id: sessionDoc.id,
     ...sessionDoc.data(),
   }));
+};
+
+// ==========================================
+// Hàm 3: Dọn dẹp các session quá hạn 7 ngày (Lazy Deletion)
+// ==========================================
+export const cleanExpiredSessions = async () => {
+  try {
+    const now = new Date();
+    // Tìm các document có trường expiresAt nhỏ hơn thời gian hiện tại
+    const q = query(collection(db, "sessions"), where("expiresAt", "<", now));
+    const snapshot = await getDocs(q);
+
+    if (!snapshot.empty) {
+      // Xóa tất cả các document tìm thấy
+      const deletePromises = snapshot.docs.map((document) => deleteDoc(document.ref));
+      await Promise.all(deletePromises);
+      console.log(`Đã tự động dọn dẹp ${snapshot.size} phiên chụp hết hạn.`);
+    }
+  } catch (error) {
+    console.error("Lỗi dọn dẹp dữ liệu hết hạn:", error);
+  }
 };
