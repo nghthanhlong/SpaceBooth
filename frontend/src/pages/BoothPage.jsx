@@ -3,6 +3,7 @@ import CameraStage from "../components/camera/CameraStage";
 import StickerPicker, { PlacedStickerList } from "../components/stickers/StickerPicker";
 import { CvUiContext } from "../components/camera/CvUiContext";
 import useStickers from "../hooks/useStickers";
+import { confirmedStickerFace, faceAtPoint, faceBounds } from "../hooks/stickerTarget";
 import { FRAMES } from "../data/frames";
 import { FACE_STICKERS as STICKERS } from "../data/stickers";
 import "../styles/stickers.css";
@@ -61,7 +62,7 @@ export default function BoothPage() {
   const lastFrameAtRef = useRef(0);
   const hoveredButtonRef = useRef(null);
   const messageRef = useRef("");
-  const mousePointRef = useRef(null);
+  const mouseFaceRef = useRef(null);
 
   // Real-time tracking refs for Dwell
   const dwellTargetRef = useRef(null);
@@ -201,6 +202,7 @@ export default function BoothPage() {
   const reportFrame = useCallback(
     (data) => {
       latestFrameRef.current = data;
+      if (!data.faces.some(face => face.id === mouseFaceRef.current && !face.stale)) mouseFaceRef.current = null;
       lastFrameAtRef.current = performance.now();
 
       let message = "Giữ bàn tay mở để nhận quyền điều khiển.";
@@ -215,6 +217,13 @@ export default function BoothPage() {
         }
       }
 
+      if (data.controller.kind === "locked") {
+        message = confirmedStickerFace(data, performance.now()) !== null
+          ? "Sticker sẽ dán vào bạn. Trỏ và giữ 0,7 giây để chọn."
+          : data.controllerTarget?.status === "unavailable"
+            ? "Không tải được nhận diện cơ thể. Dùng chuột chọn mặt để dán sticker."
+            : "Chưa xác định được chủ tay. Hãy để camera thấy vai và cổ tay.";
+      }
       if (messageRef.current !== message) {
         messageRef.current = message;
         setControlMessage(message);
@@ -225,6 +234,7 @@ export default function BoothPage() {
 
   const resetCv = useCallback(() => {
     latestFrameRef.current = null;
+    mouseFaceRef.current = null;
     lastFrameAtRef.current = 0;
     messageRef.current = "";
     setControlMessage("Giữ bàn tay mở để nhận quyền điều khiển.");
@@ -304,7 +314,13 @@ export default function BoothPage() {
       const stage = getStage();
       const faces = data?.faces ?? [];
 
-      const result = autoSnapSticker(kind, faces, mousePointRef.current, stage);
+      const activeFaces = faces.filter(face => !face.stale);
+      const faceId = activeFaces.length === 1 ? activeFaces[0].id : mouseFaceRef.current;
+      if (faceId == null || performance.now() - lastFrameAtRef.current > 350) {
+        setStickerMessage("Bấm chọn một khuôn mặt trong camera trước khi chọn sticker.");
+        return;
+      }
+      const result = autoSnapSticker(kind, faces, faceId, stage);
       if (result.success) {
         setStickerMessage(stickerResultMessage(result, kind));
         setSelectedSnapKind(kind);
@@ -322,13 +338,7 @@ export default function BoothPage() {
   );
 
   useEffect(() => {
-    function onMove(event) {
-      mousePointRef.current = { x: event.clientX, y: event.clientY };
-    }
-
-    window.addEventListener("pointermove", onMove);
     return () => {
-      window.removeEventListener("pointermove", onMove);
       window.clearTimeout(snapFeedbackTimerRef.current);
     };
   }, []);
@@ -395,10 +405,14 @@ export default function BoothPage() {
         isLocked &&
         button &&
         !inCooldown &&
+        (!button.dataset.stickerKind || confirmedStickerFace(data, now) !== null) &&
         (isPointing || speed < 0.6); // Pointing gesture or steady hover
 
       if (canDwell) {
-        const isSameTarget = dwellTargetRef.current?.button === button;
+        const targetFaceId = confirmedStickerFace(data, now);
+        const handId = data.controller.handId;
+        const isSameTarget = dwellTargetRef.current?.button === button &&
+          dwellTargetRef.current?.handId === handId && dwellTargetRef.current?.faceId === targetFaceId;
 
         if (!isSameTarget) {
           // Switch to new target
@@ -411,6 +425,8 @@ export default function BoothPage() {
             button,
             kind: button.dataset.stickerKind || null,
             startTime: now,
+            handId,
+            faceId: targetFaceId,
           };
 
           if (button.dataset.stickerKind) {
@@ -447,7 +463,13 @@ export default function BoothPage() {
               // Smart Snap-to-Face!
               const stage = getStage();
               const faces = data?.faces ?? [];
-              const result = autoSnapSticker(dwell.kind, faces, point, stage);
+              const faceId = confirmedStickerFace(data, performance.now());
+              if (faceId === null || faceId !== dwell.faceId || data.controller.handId !== dwell.handId) {
+                resetDwell();
+                animationId = requestAnimationFrame(draw);
+                return;
+              }
+              const result = autoSnapSticker(dwell.kind, faces, faceId, stage);
 
               if (result.success) {
                 setStickerMessage(stickerResultMessage(result, dwell.kind));
@@ -493,6 +515,41 @@ export default function BoothPage() {
     resetDwell,
   ]);
 
+  const selectMouseFace = useCallback((event) => {
+    if (event.target.closest("button, a, input")) return;
+    if (!event.target.closest(".camera-stage")) return;
+    const stage = getStage();
+    const rect = stage?.getBoundingClientRect();
+    if (!rect?.width || !rect?.height || performance.now() - lastFrameAtRef.current > 350) return;
+    mouseFaceRef.current = faceAtPoint(latestFrameRef.current?.faces ?? [], {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+    });
+    setStickerMessage(mouseFaceRef.current === null
+      ? "Bấm vào một khuôn mặt rõ ràng để chọn."
+      : "Đã chọn mặt. Bấm sticker để dán.");
+  }, [getStage]);
+
+  const drawFaceTarget = useCallback((ctx, size, data) => {
+    const now = performance.now();
+    if (now - lastFrameAtRef.current > 350) return;
+    const gestureFace = confirmedStickerFace(data, now);
+    for (const [id, color, label] of [[gestureFace, "#a3e635", "Cử chỉ"], [mouseFaceRef.current, "#22d3ee", "Chuột"]]) {
+      const face = data?.faces.find(face => face.id === id && !face.stale);
+      if (!face) continue;
+      const box = faceBounds(face);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 4;
+      ctx.font = "18px sans-serif";
+      ctx.strokeRect(box.left * size.width, box.top * size.height,
+        (box.right - box.left) * size.width, (box.bottom - box.top) * size.height);
+      ctx.fillText(label, box.left * size.width, box.top * size.height - 8);
+      ctx.restore();
+    }
+  }, []);
+
   const cvBridge = useMemo(
     () => ({
       reportFrame,
@@ -502,6 +559,7 @@ export default function BoothPage() {
       drawStickers,
       renderFaceEffects,
       getEffectNotice,
+      drawFaceTarget,
       clearStickers,
       reportPhotos,
       getTrackingStatus,
@@ -516,6 +574,7 @@ export default function BoothPage() {
       drawStickers,
       renderFaceEffects,
       getEffectNotice,
+      drawFaceTarget,
       clearStickers,
       reportPhotos,
       getTrackingStatus,
@@ -563,7 +622,7 @@ export default function BoothPage() {
         </div>}
 
         <div ref={interactionRef} className="booth-layout">
-          <div ref={cameraColumnRef} className="camera-column">
+          <div ref={cameraColumnRef} className="camera-column" onPointerDown={selectMouseFace}>
             <CameraStage
               frame={selectedFrame}
               onPhaseChange={setCameraPhase}

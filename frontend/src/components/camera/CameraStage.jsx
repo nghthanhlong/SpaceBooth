@@ -294,7 +294,7 @@ export default function CameraStage({
     if (phaseRef.current !== "countdown") return;
 
     // Pre-snapshot validation: verify sticker transforms are safe
-    const validation = bridge?.validateSnapshotTransforms?.() ?? { valid: true };
+    const validation = bridge?.validateSnapshotTransforms?.(dataRef.current?.faces ?? []) ?? { valid: true };
     if (!validation.valid) {
       setFeedback(validation.reason || "Không thể chụp do mất dấu vị trí sticker.");
       countdownPausedRef.current = true;
@@ -613,11 +613,13 @@ export default function CameraStage({
         );
 
         if (phaseRef.current === "live") {
+          bridge?.drawFaceTarget?.(ctx, size, data);
           drawArming(ctx, size, data, progressRef.current);
         }
 
         // Tracking notice for live preview
         const trackingStatus = bridge?.getTrackingStatus?.();
+        engineRef.current?.setFaceTrackingActive(Boolean(trackingStatus?.hasPlacements));
         const effectNotice = bridge?.getEffectNotice?.();
         if (effectNotice) { setTrackingNotice(effectNotice); }
         else if (trackingStatus?.hasPlacements && phaseRef.current !== "review" && phaseRef.current !== "qr") {
@@ -638,7 +640,8 @@ export default function CameraStage({
         if (debugMode && now - lastDebug >= 200) {
           lastDebug = now;
           const info = bridge?.getDebugInfo?.();
-          setDebugData(info);
+          setDebugData({ ...info, stats: data?.stats, controllerTarget: data?.controllerTarget,
+            faces: faces.map(face => ({ id: face.id, stale: face.stale })) });
         }
       }
 
@@ -873,11 +876,19 @@ export default function CameraStage({
               </p>
               <p>
                 <strong>Active Faces:</strong>{" "}
-                {dataRef.current?.faces?.filter((f) => !f.stale)?.length ?? 0} (IDs:{" "}
-                {dataRef.current?.faces
+                {debugData?.faces?.filter((f) => !f.stale)?.length ?? 0} (IDs:{" "}
+                {debugData?.faces
                   ?.map((f) => `#${f.id}${f.stale ? "(stale)" : ""}`)
                   .join(", ") || "none"}
                 )
+              </p>
+              <p>
+                <strong>FPS / Pose:</strong> {debugData?.stats?.fps?.toFixed(1) ?? "--"}
+                {" / "}{debugData?.stats?.poseMs?.toFixed(1) ?? "--"} ms
+              </p>
+              <p>
+                <strong>Sticker target:</strong> {debugData?.controllerTarget?.status ?? "pending"}
+                {" / "}{debugData?.controllerTarget?.faceId ?? "--"}
               </p>
               <p>
                 <strong>Attached Stickers:</strong>{" "}

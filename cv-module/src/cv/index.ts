@@ -21,6 +21,8 @@ export {
 } from "./controller";
 export { DEFAULT_PINCH, type PinchConfig } from "./pinch";
 export { DEFAULT_POINT, PointDetector, type PointConfig } from "./point";
+export { StickerPoseFilter } from "./stickerPoseFilter";
+export { OwnershipResolver, DEFAULT_OWNERSHIP, type OwnershipConfig } from "./ownership";
 export { FACE, HAND } from "./landmarks";
 export { DEFAULT_TRACKING_CONFIG } from "./types";
 export type * from "./types";

@@ -2,15 +2,21 @@
 // so the demo works offline (no CDN needed at the event).
 import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const out = `${root}public/mediapipe`;
 const frontendOut = `${root}../frontend/public/mediapipe`;
 
-cpSync(`${root}node_modules/@mediapipe/tasks-vision/wasm`, `${out}/wasm`, { recursive: true });
+const require = createRequire(import.meta.url);
+const visionRoot = dirname(require.resolve("@mediapipe/tasks-vision"));
+cpSync(join(visionRoot, "wasm"), `${out}/wasm`, { recursive: true });
 console.log("Copied MediaPipe wasm -> public/mediapipe/wasm");
 
 const MODELS = {
+  "pose_landmarker_lite.task":
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
   "gesture_recognizer.task":
     "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
   "face_landmarker.task":
