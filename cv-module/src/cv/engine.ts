@@ -127,6 +127,7 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
 
   stop(): void {
     this.running = false;
+    this.releaseControl();
   }
 
   /** Gives up control on purpose (e.g. after the photo is taken). */

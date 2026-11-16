@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { ControllerLock } from "./controller";
+import { ControllerLock, DEFAULT_CONTROLLER } from "./controller";
+import { CvEngine } from "./engine";
 import type { GestureName, TrackedHand } from "./types";
 import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 
@@ -30,6 +31,132 @@ describe("ControllerLock", () => {
 
   beforeEach(() => {
     lock = new ControllerLock();
+  });
+
+  describe("automatic interaction session", () => {
+    function activate() {
+      lock.update([mockHand(1)], 0);
+      expect(lock.update([mockHand(1)], 200).controller).toBeNull();
+      expect(lock.update([mockHand(1)], 1499).controller).toBeNull();
+      expect(lock.update([mockHand(1)], 1500).controller?.id).toBe(1);
+    }
+
+    it("uses cold dwell initially and fast dwell for repeated acquisitions with new IDs", () => {
+      activate();
+      let lastSeen = 1500;
+      for (const id of [2, 3, 4]) {
+        lock.update([], lastSeen + 1501);
+        lock.update([mockHand(id)], lastSeen + 1600);
+        expect(lock.update([mockHand(id)], lastSeen + 1799).controller).toBeNull();
+        const result = lock.update([mockHand(id)], lastSeen + 1800);
+        expect(result.controller?.id).toBe(id);
+        expect(result.events.filter(e => e.type === "activate")).toHaveLength(1);
+        expect(lock.update([mockHand(id)], lastSeen + 1801).events.some(e => e.type === "activate")).toBe(false);
+        lastSeen += 1801;
+      }
+    });
+
+    it("retains control during brief loss and excludes other hands", () => {
+      activate();
+      expect(lock.update([mockHand(2)], 2000).controller).toBeNull();
+      expect(lock.publicState).toEqual({ kind: "locked", handId: 1 });
+      expect(lock.update([mockHand(1), mockHand(2)], 2500).controller?.id).toBe(1);
+    });
+
+    it("expires exactly at 30 seconds, including during fast arming", () => {
+      activate();
+      lock.update([], 3001);
+      lock.update([mockHand(2)], 31400);
+      const expired = lock.update([mockHand(2)], 31500);
+      expect(expired.controller).toBeNull();
+      expect(lock.publicState).toMatchObject({ kind: "arming", progress: 0 });
+      expect(lock.update([mockHand(2)], 31600).controller).toBeNull();
+      expect(lock.update([mockHand(2)], 32999).controller).toBeNull();
+      expect(lock.update([mockHand(2)], 33000).controller?.id).toBe(2);
+    });
+
+    it("bystanders and unsuccessful arming do not extend the session", () => {
+      activate();
+      lock.update([mockHand(2, "Pointing_Up")], 3001);
+      lock.update([mockHand(2)], 10000);
+      lock.update([], 10300);
+      lock.update([mockHand(2, "Pointing_Up")], 31000);
+      lock.update([mockHand(2)], 31500);
+      expect(lock.update([mockHand(2)], 31700).controller).toBeNull();
+      expect(lock.update([mockHand(2)], 33000).controller?.id).toBe(2);
+    });
+
+    it("refreshes the session only while the controlling hand is seen", () => {
+      activate();
+      lock.update([mockHand(1, "Pointing_Up")], 31000);
+      lock.update([], 32501);
+      lock.update([mockHand(2)], 60000);
+      expect(lock.update([mockHand(2)], 60200).controller?.id).toBe(2);
+    });
+
+    it.each(["locked", "idle", "arming"])("manual release clears the session from %s", (state) => {
+      activate();
+      if (state !== "locked") lock.update([], 3001);
+      if (state === "arming") lock.update([mockHand(2)], 3100);
+      lock.release();
+      lock.update([mockHand(3)], 4000);
+      expect(lock.update([mockHand(3)], 4200).controller).toBeNull();
+      expect(lock.update([mockHand(3)], 5500).controller?.id).toBe(3);
+    });
+
+    it.each([
+      mockHand(2, "Pointing_Up"), mockHand(2, "Open_Palm", 0.1),
+      mockHand(2, "Open_Palm", 0.9, 0.9, 0.9),
+    ])("does not complete warm arming with an ineligible hand: %j", (invalid) => {
+      lock = new ControllerLock({ ...DEFAULT_CONTROLLER, activationZone: { x0: 0.2, y0: 0.2, x1: 0.8, y1: 0.8 } });
+      activate();
+      lock.update([], 3001);
+      expect(lock.update([invalid], 3100).controller).toBeNull();
+      expect(lock.publicState.kind).toBe("idle");
+      lock.update([mockHand(2)], 3200);
+      expect(lock.update([invalid], 3400).controller).toBeNull();
+      lock.update([invalid], 3501);
+      expect(lock.publicState.kind).toBe("idle");
+    });
+
+    it("cannot activate a missing hand within the arming grace period", () => {
+      lock.acquireLock({ requiredHoldMs: 100 });
+      lock.update([mockHand(1)], 0);
+      expect(lock.update([], 100).events.some(e => e.type === "activate")).toBe(false);
+    });
+
+    it("override alone does not open a session and clearing it restores automatic timing", () => {
+      lock.acquireLock({ requiredHoldMs: 0 });
+      lock.update([], 0);
+      lock.acquireLock();
+      lock.update([mockHand(1)], 100);
+      expect(lock.update([mockHand(1)], 300).controller).toBeNull();
+      expect(lock.update([mockHand(1)], 1600).controller?.id).toBe(1);
+      lock.update([], 3101);
+      lock.acquireLock({ requiredHoldMs: 500 });
+      lock.update([mockHand(2)], 3200);
+      expect(lock.update([mockHand(2)], 3400).controller).toBeNull();
+      expect(lock.update([mockHand(2)], 3700).controller?.id).toBe(2);
+    });
+
+    it("keeps an active countdown after the controller lowers their hand", () => {
+      activate();
+      lock.update([mockHand(1, "Victory")], 1600);
+      expect(lock.update([mockHand(1, "Victory")], 2200).events.some(e => e.type === "countdownStart")).toBe(true);
+      lock.update([], 3701);
+      expect(lock.update([], 7200).events.some(e => e.type === "capture")).toBe(true);
+    });
+
+    it("engine stop resets automatic acquisition to cold", () => {
+      const engine = new CvEngine({} as HTMLVideoElement);
+      const controller = (engine as unknown as { controller: ControllerLock }).controller;
+      controller.update([mockHand(1)], 0);
+      controller.update([mockHand(1)], 1500);
+      engine.stop();
+      controller.update([mockHand(2)], 2000);
+      expect(controller.update([mockHand(2)], 2200).controller).toBeNull();
+      expect(controller.update([mockHand(2)], 3500).controller?.id).toBe(2);
+    });
   });
 
   describe("Task 3.5: Multi-person open palm conflict", () => {
