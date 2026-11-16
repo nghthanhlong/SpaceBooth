@@ -27,20 +27,29 @@ const AMBIGUITY_RATIO = 0.7;
 export class IdTracker<T> {
   private tracks: Track<T>[] = [];
   private nextId = 1;
+  private velocities = new Map<number, Point>();
 
-  constructor(
-    private maxDistance: number,
-    private maxMissedMs: number,
-  ) {}
+  constructor(private maxDistance: number, private maxMissedMs: number,
+    private options: { predictionMs?: number; deferAmbiguous?: boolean } = {}) {}
 
   /** Returns the tracks matched or created in this frame. */
   update(items: T[], posOf: (item: T) => Point, now: number): Track<T>[] {
+    // Expired tracks must not reclaim a new arrival before they are purged.
+    this.tracks = this.tracks.filter(t => now - t.lastSeen <= this.maxMissedMs);
+    const liveIds = new Set(this.tracks.map(t => t.id));
+    for (const id of this.velocities.keys()) if (!liveIds.has(id)) this.velocities.delete(id);
     const positions = items.map(posOf);
 
     const pairs: { i: number; j: number; d: number }[] = [];
     positions.forEach((p, i) => {
       this.tracks.forEach((track, j) => {
-        const d = dist(p, track.pos);
+        const velocity = this.velocities.get(track.id) ?? { x: 0, y: 0 };
+        const horizon = Math.min(now - track.lastSeen, this.options.predictionMs ?? 0);
+        const offset = { x: velocity.x * horizon, y: velocity.y * horizon };
+        const length = Math.hypot(offset.x, offset.y);
+        const clamp = length > this.maxDistance / 2 ? this.maxDistance / 2 / length : 1;
+        const predicted = { x: track.pos.x + offset.x * clamp, y: track.pos.y + offset.y * clamp };
+        const d = dist(p, predicted);
         if (d <= this.maxDistance) pairs.push({ i, j, d });
       });
     });
@@ -63,13 +72,18 @@ export class IdTracker<T> {
           !usedItems.has(other.i) &&
           !usedTracks.has(other.j) &&
           (other.i === i || other.j === j) &&
-          other.d < d / AMBIGUITY_RATIO,
+          (d === 0 ? other.d === 0 : other.d < d / AMBIGUITY_RATIO),
       );
       if (isAmbiguous) continue;
 
       usedItems.add(i);
       usedTracks.add(j);
       const track = this.tracks[j];
+      const dt = now - track.lastSeen;
+      if (dt > 0 && dt <= (this.options.predictionMs ?? 0)) {
+        this.velocities.set(track.id, { x: (positions[i].x - track.pos.x) / dt,
+          y: (positions[i].y - track.pos.y) / dt });
+      } else this.velocities.delete(track.id);
       track.item = items[i];
       track.pos = positions[i];
       track.lastSeen = now;
@@ -78,6 +92,9 @@ export class IdTracker<T> {
 
     items.forEach((item, i) => {
       if (usedItems.has(i)) return;
+      // An unresolved face keeps its existing tracks stale; inventing another ID
+      // here would compete with those same tracks for the next 2.5 seconds.
+      if (this.options.deferAmbiguous && pairs.some(pair => pair.i === i && !usedTracks.has(pair.j))) return;
       const track: Track<T> = { id: this.nextId++, item, pos: positions[i], lastSeen: now };
       this.tracks.push(track);
       seen.push(track);
@@ -94,5 +111,6 @@ export class IdTracker<T> {
 
   reset(): void {
     this.tracks = [];
+    this.velocities.clear();
   }
 }

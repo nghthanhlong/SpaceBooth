@@ -236,6 +236,8 @@ function statsText(): string {
     lines.unshift(
       `fps      : ${stats.fps.toFixed(1)}`,
       `gesture  : ${stats.gestureMs.toFixed(1)} ms`,
+      `pose     : ${stats.poseMs.toFixed(1)} ms`,
+      `target   : ${frame.controllerTarget.status} face #${frame.controllerTarget.faceId ?? "-"}`,
       `face     : ${stats.faceUpdated ? `${stats.faceMs.toFixed(1)} ms` : "(skipped)"}`,
       `total    : ${stats.totalMs.toFixed(1)} ms`,
       `hands    : ${frame.hands.length}   faces: ${frame.faces.length}`,
