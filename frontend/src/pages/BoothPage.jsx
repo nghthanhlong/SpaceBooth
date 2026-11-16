@@ -40,7 +40,6 @@ export default function BoothPage() {
 
   const [cameraStatus, setCameraStatus] = useState("loading");
   const [cvStatus, setCvStatus] = useState("waiting");
-  const [controllerMode, setControllerMode] = useState("cold");
   const [controlMessage, setControlMessage] = useState(
     "Giữ bàn tay mở để nhận quyền điều khiển.",
   );
@@ -568,8 +567,6 @@ export default function BoothPage() {
             <CameraStage
               frame={selectedFrame}
               onPhaseChange={setCameraPhase}
-              controllerMode={controllerMode}
-              onControllerModeChange={setControllerMode}
             />
           </div>
 

@@ -5,6 +5,10 @@ import type { ControllerState, CvEvent, GestureName, TrackedHand } from "./types
 export interface ControllerConfig {
   /** How long the open palm must be held to take control. */
   dwellMs: number;
+  /** Hold time after a successful activation in the current interaction session. */
+  reacquireDwellMs: number;
+  /** Session expires after this long without seeing the controlling hand. */
+  sessionIdleTimeoutMs: number;
   /** Minimum gesture confidence to count a gesture. */
   gestureMinScore: number;
   /** The controller loses control after its hand is missing for this long. */
@@ -24,12 +28,14 @@ export interface ControllerConfig {
 }
 
 export interface AcquireControllerOptions {
-  /** How long the open palm must be held to take control. Default: cfg.dwellMs (1500ms). */
+  /** Explicit hold-time override; omitted means automatic cold/warm session timing. */
   requiredHoldMs?: number;
 }
 
 export const DEFAULT_CONTROLLER: ControllerConfig = {
   dwellMs: 1500,
+  reacquireDwellMs: 200,
+  sessionIdleTimeoutMs: 30000,
   gestureMinScore: 0.6,
   lostTimeoutMs: 1500,
   armingGraceMs: 250,
@@ -48,7 +54,9 @@ type InternalState =
 /**
  * Controller lock: decides WHO controls the cursor when many people/hands are in view.
  *
- *   idle --(open palm held dwellMs)--> locked --(hand missing > lostTimeoutMs)--> idle
+ *   idle --(open palm held)--> locked --(hand missing > lostTimeoutMs)--> idle
+ * First acquisition uses dwellMs; subsequent acquisitions use reacquireDwellMs
+ * until sessionIdleTimeoutMs without seeing the controlling hand.
  *
  * While locked, only the controller's hand moves the cursor and pinches.
  * Capture is the exception: the countdown starts when the controller shows Victory,
@@ -62,6 +70,7 @@ export class ControllerLock {
   private cooldownUntil = 0;
   private countdown: { end: number; secondsLeft: number; victoryHands: number } | null = null;
   private acquireOptions: AcquireControllerOptions = {};
+  private sessionLastSeen: number | null = null;
 
   constructor(private cfg: ControllerConfig = DEFAULT_CONTROLLER) {}
 
@@ -84,8 +93,22 @@ export class ControllerLock {
   ): { controller: TrackedHand | null; events: CvEvent[] } {
     const events: CvEvent[] = [];
     const byId = (id: number) => hands.find((h) => h.id === id) ?? null;
+    if (this.sessionLastSeen !== null && now - this.sessionLastSeen >= this.cfg.sessionIdleTimeoutMs) {
+      this.sessionLastSeen = null;
+      if (this.state.kind === "arming") {
+        events.push({ type: "dwellProgress", payload: { handId: this.state.handId, progress: 0 } });
+        this.state = { kind: "idle" };
+      }
+      // A returning detection after a long processing gap must also acquire again.
+      if (this.state.kind === "locked") {
+        events.push({ type: "release", payload: { handId: this.state.handId, reason: "lost" } });
+        this.state = { kind: "idle" };
+        this.cancelCapture(events);
+      }
+    }
     const effectiveHoldMs =
-      options?.requiredHoldMs ?? this.acquireOptions.requiredHoldMs ?? this.cfg.dwellMs;
+      options?.requiredHoldMs ?? this.acquireOptions.requiredHoldMs ??
+      (this.sessionLastSeen === null ? this.cfg.dwellMs : this.cfg.reacquireDwellMs);
 
     switch (this.state.kind) {
       case "idle": {
@@ -102,7 +125,8 @@ export class ControllerLock {
       }
       case "arming": {
         const hand = byId(this.state.handId);
-        if (hand && this.is(hand, "Open_Palm")) this.state.lastOk = now;
+        const eligible = hand && this.is(hand, "Open_Palm") && this.inZone(hand);
+        if (eligible) this.state.lastOk = now;
 
         if (now - this.state.lastOk > this.cfg.armingGraceMs) {
           events.push({ type: "dwellProgress", payload: { handId: this.state.handId, progress: 0 } });
@@ -112,7 +136,7 @@ export class ControllerLock {
         const progress = effectiveHoldMs <= 0 ? 1 : Math.min((now - this.state.start) / effectiveHoldMs, 1);
         this.state.progress = progress;
         events.push({ type: "dwellProgress", payload: { handId: this.state.handId, progress } });
-        if (progress >= 1) {
+        if (progress >= 1 && eligible) {
           events.push({ type: "activate", payload: { handId: this.state.handId } });
           this.state = { kind: "locked", handId: this.state.handId, lastSeen: now };
         }
@@ -131,6 +155,7 @@ export class ControllerLock {
     }
 
     const controller = this.state.kind === "locked" ? byId(this.state.handId) : null;
+    if (controller) this.sessionLastSeen = now;
     if (this.countdown) this.updateCountdown(now, events);
     else if (this.state.kind === "locked") this.updateCapture(hands, controller, now, events);
 
@@ -139,6 +164,7 @@ export class ControllerLock {
 
   /** Gives up control on purpose, e.g. when a photo session ends. */
   release(): CvEvent[] {
+    this.sessionLastSeen = null;
     if (this.state.kind !== "locked") {
       this.state = { kind: "idle" };
       return [];

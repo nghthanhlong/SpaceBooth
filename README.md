@@ -28,6 +28,18 @@ If model downloads were skipped because the machine was offline, run
 
 Run `npm run build` to type-check the CV module and build the frontend.
 
+## Gesture activation
+
+Hold an open palm for 1.5 seconds to activate control initially. After activation,
+reacquiring control takes 200 ms until 30 seconds pass without seeing the
+controlling hand. A short disappearance retains the existing lock for 1.5 seconds.
+Once that lock is released, anyone in the group can acquire control; the session
+does not identify individual people. Manual release or stopping the CV engine
+ends the interaction session. This session is separate from saved photo albums.
+
+Timing is configurable with `dwellMs`, `reacquireDwellMs`, and
+`sessionIdleTimeoutMs` in the CV controller configuration.
+
 ## Test photo storage
 
 Run `npm run dev`, allow camera access, and wait for the camera status to show
