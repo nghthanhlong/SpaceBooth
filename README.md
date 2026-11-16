@@ -9,6 +9,14 @@ npm install
 npm run dev
 ```
 
+Copy `frontend/.env.example` to `frontend/.env.local` and fill in the Firebase
+client configuration and Cloudinary unsigned upload preset before using albums.
+Restart Vite after changing env values. Local env files and private credentials
+are ignored by Git; only the empty example is committed. `VITE_*` values are
+included in browser bundles: never use them for server API secrets, service
+account private keys, or Cloudinary API secrets. Firebase Security Rules and
+Cloudinary upload restrictions must enforce access on their respective services.
+
 The frontend is served by Vite. It imports the `spacebooth-cv` workspace package
 from `cv-module`, while the CV module's setup script places its MediaPipe WASM
 files and models in `frontend/public/mediapipe` for the browser to load.

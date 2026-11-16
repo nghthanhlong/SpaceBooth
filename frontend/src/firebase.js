@@ -14,20 +14,20 @@ import {
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBbz7f_sRlzw226_fUeQiA02DMYYFWc_mU",
-  authDomain: "spacebooth-nhom10.firebaseapp.com",
-  projectId: "spacebooth-nhom10",
-  storageBucket: "spacebooth-nhom10.firebasestorage.app",
-  messagingSenderId: "311282193601",
-  appId: "1:311282193601:web:8d247920c29a5e7d213040",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const storage = getStorage(app); 
 
-const CLOUDINARY_CLOUD_NAME = "issozzhm"; 
-const CLOUDINARY_UPLOAD_PRESET = "unsigned_100"; 
+const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
 // Hàm 1: Upload 5 ảnh lên Cloudinary và lưu vào Firestore
 export const createPhotoSession = async (filesArray) => {
