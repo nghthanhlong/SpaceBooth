@@ -16,23 +16,27 @@ async function addSticker(file, sticker) {
   if (!sticker) return file;
 
   const url = URL.createObjectURL(file);
+
   try {
     const [strip, icon] = await Promise.all([
       loadImage(url),
       loadImage(sticker.src),
     ]);
+
     const canvas = document.createElement("canvas");
     canvas.width = strip.naturalWidth;
     canvas.height = strip.naturalHeight;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Không thể vẽ sticker.");
+
     ctx.drawImage(strip, 0, 0);
 
-    // Đặt sticker ở góc dưới bên phải và giữ nguyên tỷ lệ.
     const margin = canvas.width * 0.025;
-    const scale = canvas.width * 0.13 /
+    const scale =
+      canvas.width * 0.13 /
       Math.max(icon.naturalWidth, icon.naturalHeight);
+
     const width = icon.naturalWidth * scale;
     const height = icon.naturalHeight * scale;
 
@@ -73,7 +77,10 @@ function CheckPhoto({ checked, number, disabled, onClick }) {
     >
       {checked && (
         <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32">
-          <path fill="currentColor" d="M3 17l6-4 5 6L27 4l2 7c-6 4-10 11-14 17z" />
+          <path
+            fill="currentColor"
+            d="M3 17l6-4 5 6L27 4l2 7c-6 4-10 11-14 17z"
+          />
         </svg>
       )}
     </button>
@@ -84,7 +91,7 @@ export default function CaptureScreen({
   host,
   height = 480,
   photos,
-  saving,
+  saving: parentSaving,
   message,
   onBack,
   onSave,
@@ -97,15 +104,21 @@ export default function CaptureScreen({
   const [templateId, setTemplateId] = useState("film");
   const [stickerId, setStickerId] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [preparingSave, setPreparingSave] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
-  // Xếp ảnh theo thứ tự chụp.
+  const saving = parentSaving || preparingSave;
+
   const selected = useMemo(
     () => photos.filter((photo) => selectedIds.includes(photo.id)),
     [photos, selectedIds],
   );
 
-  const expandedIndex = photos.findIndex((photo) => photo.id === expandedId);
+  const expandedIndex = photos.findIndex(
+    (photo) => photo.id === expandedId,
+  );
   const expanded = photos[expandedIndex];
+
   const currentPreview =
     editing &&
     preview?.selected === selected &&
@@ -121,12 +134,19 @@ export default function CaptureScreen({
     let url;
     const key = { selected, templateId, stickerId };
 
-    composePhotoStrip(selected, templateId)
+    setSaveError(null);
+
+    // Chỉ ghép bản nhẹ khi xem trước.
+    composePhotoStrip(selected, templateId, { preview: true })
       .then((file) =>
-        addSticker(file, STICKERS.find((item) => item.id === stickerId)),
+        addSticker(
+          file,
+          STICKERS.find((item) => item.id === stickerId),
+        ),
       )
       .then((file) => {
         if (!active) return;
+
         url = URL.createObjectURL(file);
         setPreview({ ...key, file, url });
       })
@@ -145,9 +165,33 @@ export default function CaptureScreen({
     };
   }, [editing, selected, templateId, stickerId]);
 
+  async function saveStrip() {
+    if (saving || !currentPreview?.file) return;
+
+    setPreparingSave(true);
+    setSaveError(null);
+
+    try {
+      // SAVE luôn yêu cầu bản đầy đủ, không dùng file preview.
+      const fullSize = await composePhotoStrip(selected, templateId);
+      const file = await addSticker(
+        fullSize,
+        STICKERS.find((item) => item.id === stickerId),
+      );
+
+      await onSave(selected.map((photo) => photo.id), file);
+    } catch (error) {
+      setSaveError(error?.message || "Không thể lưu dải ảnh.");
+    } finally {
+      setPreparingSave(false);
+    }
+  }
+
   function togglePhoto(id) {
     setSelectedIds((ids) =>
-      ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id],
+      ids.includes(id)
+        ? ids.filter((item) => item !== id)
+        : [...ids, id],
     );
   }
 
@@ -167,7 +211,9 @@ export default function CaptureScreen({
   function discardExpanded() {
     if (!expanded || saving) return;
 
-    setSelectedIds((ids) => ids.filter((id) => id !== expanded.id));
+    setSelectedIds((ids) =>
+      ids.filter((id) => id !== expanded.id),
+    );
     setExpandedId(null);
     onDiscard(expanded.id);
   }
@@ -175,12 +221,19 @@ export default function CaptureScreen({
   if (!host || photos.length === 0) return null;
 
   const backLabel = editing || expanded ? "Về chọn ảnh" : "Về camera";
+
   const heading = editing
     ? "Chỉnh dải ảnh"
-    : expanded ? `Ảnh số ${expandedIndex + 1}` : "Chọn ảnh của bạn";
+    : expanded
+      ? `Ảnh số ${expandedIndex + 1}`
+      : "Chọn ảnh của bạn";
 
   return createPortal(
-    <section className="strip-review" style={{ height }} aria-label={heading}>
+    <section
+      className="strip-review"
+      style={{ height }}
+      aria-label={heading}
+    >
       <header className="strip-review__bar">
         <div>
           <h2>{heading}</h2>
@@ -188,6 +241,7 @@ export default function CaptureScreen({
             Đã chọn {selected.length}/{photos.length} ảnh
           </p>
         </div>
+
         <button
           type="button"
           className="secondary-button"
@@ -228,7 +282,11 @@ export default function CaptureScreen({
             </div>
 
             {panel === "frame" ? (
-              <div className="strip-review__templates" role="group" aria-label="Mẫu khung">
+              <div
+                className="strip-review__templates"
+                role="group"
+                aria-label="Mẫu khung"
+              >
                 {STRIP_TEMPLATES.map((template) => (
                   <button
                     key={template.id}
@@ -244,7 +302,11 @@ export default function CaptureScreen({
                 ))}
               </div>
             ) : (
-              <div className="strip-review__templates" role="group" aria-label="Sticker dải ảnh">
+              <div
+                className="strip-review__templates"
+                role="group"
+                aria-label="Sticker dải ảnh"
+              >
                 <button
                   type="button"
                   className="secondary-button"
@@ -255,6 +317,7 @@ export default function CaptureScreen({
                 >
                   Không thêm sticker
                 </button>
+
                 {STICKERS.map((sticker) => (
                   <button
                     key={sticker.id}
@@ -284,7 +347,9 @@ export default function CaptureScreen({
                 alt={`Dải xem trước gồm ${selected.length} ảnh`}
               />
             ) : (
-              <p role="status">{currentPreview?.error || "Đang ghép dải ảnh…"}</p>
+              <p role="status">
+                {currentPreview?.error || "Đang ghép dải ảnh…"}
+              </p>
             )}
           </div>
         ) : expanded ? (
@@ -298,6 +363,7 @@ export default function CaptureScreen({
                 {expandedIndex + 1}
               </span>
             </div>
+
             <div className="strip-review__actions strip-review__viewer-actions">
               <button
                 type="button"
@@ -306,23 +372,37 @@ export default function CaptureScreen({
                 title="Ảnh trước"
                 disabled={saving || photos.length < 2}
                 onClick={() =>
-                  setExpandedId(photos[(expandedIndex - 1 + photos.length) % photos.length].id)
+                  setExpandedId(
+                    photos[
+                      (expandedIndex - 1 + photos.length) % photos.length
+                    ].id,
+                  )
                 }
                 data-cv-selectable
               >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-                  <path d="m15 5-7 7 7 7" stroke="currentColor" strokeWidth="3"
-                    strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="m15 5-7 7 7 7"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
 
               <div className="strip-review__viewer-middle">
                 <CheckPhoto
-                checked={selectedIds.includes(expanded.id)}
-                number={expandedIndex + 1}
-                disabled={saving}
-                onClick={() => togglePhoto(expanded.id)}
-              />
+                  checked={selectedIds.includes(expanded.id)}
+                  number={expandedIndex + 1}
+                  disabled={saving}
+                  onClick={() => togglePhoto(expanded.id)}
+                />
+
                 <button
                   type="button"
                   className="secondary-button strip-review__trash"
@@ -332,9 +412,15 @@ export default function CaptureScreen({
                   disabled={saving}
                   data-cv-selectable
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" strokeWidth="2"
-                    strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6m4-6v6" />
                   </svg>
                 </button>
@@ -347,13 +433,24 @@ export default function CaptureScreen({
                 title="Ảnh tiếp theo"
                 disabled={saving || photos.length < 2}
                 onClick={() =>
-                  setExpandedId(photos[(expandedIndex + 1) % photos.length].id)
+                  setExpandedId(
+                    photos[(expandedIndex + 1) % photos.length].id,
+                  )
                 }
                 data-cv-selectable
               >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-                  <path d="m9 5 7 7-7 7" stroke="currentColor" strokeWidth="3"
-                    strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="m9 5 7 7-7 7"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             </div>
@@ -371,10 +468,14 @@ export default function CaptureScreen({
                   data-cv-selectable
                 >
                   <img src={photo.previewUrl} alt="" draggable={false} />
-                  <span className="strip-review__number" aria-hidden="true">
+                  <span
+                    className="strip-review__number"
+                    aria-hidden="true"
+                  >
                     {index + 1}
                   </span>
                 </button>
+
                 <CheckPhoto
                   checked={selectedIds.includes(photo.id)}
                   number={index + 1}
@@ -389,23 +490,28 @@ export default function CaptureScreen({
 
       <footer className="strip-review__bar">
         <p role="status">
-          {message || (editing
-            ? "Ảnh được xếp từ trên xuống theo thứ tự chụp."
-            : "Chọn từ 1 đến 5 ảnh để ghép thành một dải.")}
+          {saveError ||
+            message ||
+            (editing
+              ? "Ảnh được xếp từ trên xuống theo thứ tự chụp."
+              : "Chọn từ 1 đến 5 ảnh để ghép thành một dải.")}
         </p>
+
         {editing ? (
           <button
             type="button"
-            className="primary-button strip-review__save" aria-label={saving ? "Đang lưu dải ảnh" : "Lưu dải ảnh"}
+            className="primary-button strip-review__save"
+            aria-label={saving ? "Đang lưu dải ảnh" : "Lưu dải ảnh"}
             disabled={saving || !currentPreview?.file}
-            onClick={() =>
-              onSave(selected.map((photo) => photo.id), currentPreview.file)
-            }
+            onClick={saveStrip}
             data-cv-selectable
           >
             <span className="strip-review__save-icon" aria-hidden="true">
               <svg focusable="false" viewBox="0 0 24 24">
-                <path fill="currentColor" d="M6 3h12a2 2 0 0 1 2 2v15a1 1 0 0 1-1.6.8L12 16l-6.4 4.8A1 1 0 0 1 4 20V5a2 2 0 0 1 2-2z" />
+                <path
+                  fill="currentColor"
+                  d="M6 3h12a2 2 0 0 1 2 2v15a1 1 0 0 1-1.6.8L12 16l-6.4 4.8A1 1 0 0 1 4 20V5a2 2 0 0 1 2-2z"
+                />
               </svg>
             </span>
             <span>{saving ? "Đang lưu…" : "SAVE"}</span>
@@ -413,7 +519,9 @@ export default function CaptureScreen({
         ) : (
           <button
             type="button"
-            className="primary-button strip-review__next" aria-label="Tiếp: Chỉnh dải ảnh" title="Chỉnh dải ảnh"
+            className="primary-button strip-review__next"
+            aria-label="Tiếp: Chỉnh dải ảnh"
+            title="Chỉnh dải ảnh"
             disabled={saving || selected.length === 0}
             onClick={() => {
               setExpandedId(null);
@@ -422,8 +530,15 @@ export default function CaptureScreen({
             }}
             data-cv-selectable
           >
-            <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48">
-              <path fill="currentColor" d="M29 6l16 13-16 13v-9C17 23 9 30 4 42c0-17 9-27 25-28V6z" />
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              viewBox="0 0 48 48"
+            >
+              <path
+                fill="currentColor"
+                d="M29 6l16 13-16 13v-9C17 23 9 30 4 42c0-17 9-27 25-28V6z"
+              />
             </svg>
           </button>
         )}
