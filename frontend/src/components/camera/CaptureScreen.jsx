@@ -84,7 +84,7 @@ export default function CaptureScreen({
   host,
   height = 480,
   photos,
-  saving,
+  saving: parentSaving,
   message,
   onBack,
   onSave,
@@ -97,6 +97,9 @@ export default function CaptureScreen({
   const [templateId, setTemplateId] = useState("film");
   const [stickerId, setStickerId] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [preparingSave, setPreparingSave] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const saving = parentSaving || preparingSave;
 
   // Xếp ảnh theo thứ tự chụp.
   const selected = useMemo(
@@ -120,8 +123,9 @@ export default function CaptureScreen({
     let active = true;
     let url;
     const key = { selected, templateId, stickerId };
+    setSaveError(null);
 
-    composePhotoStrip(selected, templateId)
+    composePhotoStrip(selected, templateId, { preview: true })
       .then((file) =>
         addSticker(file, STICKERS.find((item) => item.id === stickerId)),
       )
@@ -144,6 +148,24 @@ export default function CaptureScreen({
       if (url) URL.revokeObjectURL(url);
     };
   }, [editing, selected, templateId, stickerId]);
+
+  async function saveStrip() {
+    if (saving || !currentPreview?.file) return;
+    setPreparingSave(true);
+    setSaveError(null);
+    try {
+      const fullSize = await composePhotoStrip(selected, templateId);
+      const file = await addSticker(
+        fullSize,
+        STICKERS.find((item) => item.id === stickerId),
+      );
+      await onSave(selected.map((photo) => photo.id), file);
+    } catch (error) {
+      setSaveError(error?.message || "Không thể lưu dải ảnh.");
+    } finally {
+      setPreparingSave(false);
+    }
+  }
 
   function togglePhoto(id) {
     setSelectedIds((ids) =>
@@ -389,7 +411,7 @@ export default function CaptureScreen({
 
       <footer className="strip-review__bar">
         <p role="status">
-          {message || (editing
+          {saveError || message || (editing
             ? "Ảnh được xếp từ trên xuống theo thứ tự chụp."
             : "Chọn từ 1 đến 5 ảnh để ghép thành một dải.")}
         </p>
@@ -398,9 +420,7 @@ export default function CaptureScreen({
             type="button"
             className="primary-button strip-review__save" aria-label={saving ? "Đang lưu dải ảnh" : "Lưu dải ảnh"}
             disabled={saving || !currentPreview?.file}
-            onClick={() =>
-              onSave(selected.map((photo) => photo.id), currentPreview.file)
-            }
+            onClick={saveStrip}
             data-cv-selectable
           >
             <span className="strip-review__save-icon" aria-hidden="true">
