@@ -1,63 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import BoothIcon from "../layout/BoothIcon";
-import { STICKERS } from "../../data/stickers";
+import PhotoStickerEditor from "./PhotoStickerEditor";
+import { photosWithStickers } from "../../utils/photoStickers";
 import { composePhotoStrip, STRIP_TEMPLATES } from "../../utils/photoStrip";
 import "../../styles/strip-review.css";
-
-async function loadImage(src) {
-  const image = new Image();
-  image.src = src;
-  await image.decode();
-  return image;
-}
-
-async function addSticker(file, sticker) {
-  if (!sticker) return file;
-
-  const url = URL.createObjectURL(file);
-  try {
-    const [strip, icon] = await Promise.all([
-      loadImage(url),
-      loadImage(sticker.src),
-    ]);
-    const canvas = document.createElement("canvas");
-    canvas.width = strip.naturalWidth;
-    canvas.height = strip.naturalHeight;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Không thể vẽ sticker.");
-    ctx.drawImage(strip, 0, 0);
-
-    // Đặt sticker ở góc dưới bên phải và giữ nguyên tỷ lệ.
-    const margin = canvas.width * 0.025;
-    const scale = canvas.width * 0.13 /
-      Math.max(icon.naturalWidth, icon.naturalHeight);
-    const width = icon.naturalWidth * scale;
-    const height = icon.naturalHeight * scale;
-
-    ctx.drawImage(
-      icon,
-      canvas.width - margin - width,
-      canvas.height - margin - height,
-      width,
-      height,
-    );
-
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((result) => {
-        if (result) resolve(result);
-        else reject(new Error("Không thể xuất PNG."));
-      }, "image/png");
-    });
-
-    return new File([blob], file.name || "spacebooth-strip.png", {
-      type: "image/png",
-    });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
 
 function CheckPhoto({ checked, number, disabled, onClick }) {
   return (
@@ -85,7 +32,6 @@ export default function CaptureScreen({
   height = 480,
   photos,
   saving: parentSaving,
-  message,
   onBack,
   onSave,
   onDiscard,
@@ -95,7 +41,7 @@ export default function CaptureScreen({
   const [editing, setEditing] = useState(false);
   const [panel, setPanel] = useState("frame");
   const [templateId, setTemplateId] = useState("film");
-  const [stickerId, setStickerId] = useState(null);
+  const [photoEdits, setPhotoEdits] = useState({});
   const [preview, setPreview] = useState(null);
   const [preparingSave, setPreparingSave] = useState(false);
   const [saveError, setSaveError] = useState(null);
@@ -113,7 +59,7 @@ export default function CaptureScreen({
     editing &&
     preview?.selected === selected &&
     preview.templateId === templateId &&
-    preview.stickerId === stickerId
+    preview.photoEdits === photoEdits
       ? preview
       : null;
 
@@ -122,13 +68,11 @@ export default function CaptureScreen({
 
     let active = true;
     let url;
-    const key = { selected, templateId, stickerId };
+    const key = { selected, templateId, photoEdits };
     setSaveError(null);
 
-    composePhotoStrip(selected, templateId, { preview: true })
-      .then((file) =>
-        addSticker(file, STICKERS.find((item) => item.id === stickerId)),
-      )
+    photosWithStickers(selected, photoEdits)
+      .then(photos => composePhotoStrip(photos, templateId, { preview: true }))
       .then((file) => {
         if (!active) return;
         url = URL.createObjectURL(file);
@@ -147,18 +91,15 @@ export default function CaptureScreen({
       active = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [editing, selected, templateId, stickerId]);
+  }, [editing, selected, templateId, photoEdits]);
 
   async function saveStrip() {
     if (saving || !currentPreview?.file) return;
     setPreparingSave(true);
     setSaveError(null);
     try {
-      const fullSize = await composePhotoStrip(selected, templateId);
-      const file = await addSticker(
-        fullSize,
-        STICKERS.find((item) => item.id === stickerId),
-      );
+      const decorated = await photosWithStickers(selected, photoEdits);
+      const file = await composePhotoStrip(decorated, templateId);
       await onSave(selected.map((photo) => photo.id), file);
     } catch (error) {
       setSaveError(error?.message || "Không thể lưu dải ảnh.");
@@ -266,37 +207,7 @@ export default function CaptureScreen({
                 ))}
               </div>
             ) : (
-              <div className="strip-review__templates" role="group" aria-label="Sticker dải ảnh">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  aria-pressed={stickerId === null}
-                  onClick={() => setStickerId(null)}
-                  disabled={saving}
-                  data-cv-selectable
-                >
-                  Không thêm sticker
-                </button>
-                {STICKERS.map((sticker) => (
-                  <button
-                    key={sticker.id}
-                    type="button"
-                    className="secondary-button"
-                    aria-label={sticker.name ?? sticker.label ?? sticker.id}
-                    aria-pressed={stickerId === sticker.id}
-                    onClick={() => setStickerId(sticker.id)}
-                    disabled={saving}
-                    data-cv-selectable
-                  >
-                    <img
-                      className="strip-review__sticker-icon"
-                      src={sticker.src}
-                      alt=""
-                      draggable={false}
-                    />
-                  </button>
-                ))}
-              </div>
+              <PhotoStickerEditor photos={selected} edits={photoEdits} onChange={setPhotoEdits} disabled={saving} />
             )}
 
             {currentPreview?.url ? (
@@ -410,11 +321,7 @@ export default function CaptureScreen({
       </div>
 
       <footer className="strip-review__bar">
-        <p role="status">
-          {saveError || message || (editing
-            ? "Ảnh được xếp từ trên xuống theo thứ tự chụp."
-            : "Chọn từ 1 đến 5 ảnh để ghép thành một dải.")}
-        </p>
+        <p role="status">{saveError || ""}</p>
         {editing ? (
           <button
             type="button"

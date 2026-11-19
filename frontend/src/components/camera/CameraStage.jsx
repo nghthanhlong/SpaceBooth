@@ -76,6 +76,7 @@ export default function CameraStage({
   frame: _frame,
   controllerMode = "cold",
   onControllerModeChange,
+  onPhaseChange,
 }) {
   const bridge = useContext(CvUiContext);
   const audio = useCountdownAudio();
@@ -135,6 +136,8 @@ export default function CameraStage({
     phaseRef.current = next;
     setPhase(next);
   }, []);
+
+  useEffect(() => { onPhaseChange?.(phase); }, [phase, onPhaseChange]);
 
   useEffect(() => {
     controllerModeRef.current = controllerMode;
@@ -349,6 +352,7 @@ export default function CameraStage({
       if (mountedRef.current) setFlash(false);
     }, 350);
 
+    const capturedFaces = structuredClone(faces.filter(face => !face.stale));
     canvas.toBlob((blob) => {
       if (!mountedRef.current) return;
 
@@ -369,7 +373,7 @@ export default function CameraStage({
 
       updatePhotos([
         ...photosRef.current,
-        { id, file, previewUrl },
+        { id, file, previewUrl, faces: capturedFaces },
       ]);
 
       setReviewMessage("");
@@ -955,11 +959,11 @@ export default function CameraStage({
         </div>
       </div>
 
-      <p className="photo-feedback" role="status">
+      {(phase === "live" || phase === "countdown") && <p className="photo-feedback" role="status">
         {audio.error ||
           feedback ||
           "Bật âm thanh một lần, sau đó giơ chữ V để chụp."}
-      </p>
+      </p>}
 
       {status === "ready" && cvStatus === "error" && (
         <div className="cv-error" role="alert">
