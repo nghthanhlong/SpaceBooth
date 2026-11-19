@@ -26,11 +26,13 @@ describe('webcam virtual backgrounds',()=>{
     const snapshot=renderer.snapshot(ctx,size);
     const frame1=sent.find(item=>item.type==='frame');
     worker.onmessage({data:{type:'mask',sequence:frame1.sequence,width:1,height:1,pixels:new Uint8Array([1])}});
+    const savedMask=renderer.mask;
     await first;await Promise.resolve();await Promise.resolve();
     const frames=sent.filter(item=>item.type==='frame');expect(frames).toHaveLength(2);
     expect(renderer.composite).not.toHaveBeenCalled();
     worker.onmessage({data:{type:'mask',sequence:frames[1].sequence,width:1,height:1,pixels:new Uint8Array([0])}});
     await snapshot;expect(renderer.composite).toHaveBeenCalledOnce();
+    expect(renderer.mask).toBe(savedMask);
     renderer.dispose();expect(worker.terminate).toHaveBeenCalledOnce();
     worker.onmessage({data:{type:'ready'}});expect(renderer.status).toBe('idle');
   });

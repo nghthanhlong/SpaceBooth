@@ -1,19 +1,39 @@
 /* Animate only buttons, never the image-placement surface or disabled controls. */
 @media (hover: hover) and (pointer: fine) {
-  :root button:not(:disabled):not(.photo-sticker-editor__image) {
-    transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  :root button:not(:disabled):not(:is(.photo-sticker-editor__image,.recent-photo-button)) {
+    transition: transform 140ms ease, border-color 140ms ease;
   }
-  :root button:not(:disabled):not(.photo-sticker-editor__image):hover {
+  :root button:not(:disabled):not(:is(.photo-sticker-editor__image,.recent-photo-button)):hover {
     transform: scale(1.025);
-    box-shadow: 0 0 0 1px var(--booth-accent,#c4b5fd), 0 0 14px 2px color-mix(in srgb,var(--booth-accent,#c4b5fd) 45%,transparent);
+    box-shadow: 0 0 0 1px var(--booth-accent,#c4b5fd), 0 0 10px 1px color-mix(in srgb,var(--booth-accent,#c4b5fd) 45%,transparent);
   }
-  :root button:not(:disabled):not(.photo-sticker-editor__image):active {
+  :root button:not(:disabled):not(:is(.photo-sticker-editor__image,.recent-photo-button)):active {
     transform: scale(.97);
     box-shadow: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  :root button:not(:disabled):not(.photo-sticker-editor__image) { transition: none; }
-  :root button:not(:disabled):not(.photo-sticker-editor__image):hover,
-  :root button:not(:disabled):not(.photo-sticker-editor__image):active { transform: none; }
+  :root button:not(:disabled):not(:is(.photo-sticker-editor__image,.recent-photo-button)) { transition: none; }
+  :root button:not(:disabled):not(:is(.photo-sticker-editor__image,.recent-photo-button)):hover,
+  :root button:not(:disabled):not(:is(.photo-sticker-editor__image,.recent-photo-button)):active { transform: none; }
+}
+
+/* The full recent-photo row stays clickable; feedback hugs its arrow only. */
+@media (hover: hover) and (pointer: fine) {
+  :root .recent-photo-button .recent-photo-open {
+    transition: transform 140ms ease, border-color 140ms ease;
+  }
+  :root .recent-photo-button:hover:not(:disabled) .recent-photo-open {
+    transform: scale(1.025);
+    box-shadow: 0 0 0 1px var(--booth-accent,#c4b5fd), 0 0 10px 1px color-mix(in srgb,var(--booth-accent,#c4b5fd) 45%,transparent);
+  }
+  :root .recent-photo-button:active:not(:disabled) .recent-photo-open {
+    transform: scale(.97);
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root .recent-photo-button .recent-photo-open { transition: none; }
+  :root .recent-photo-button:hover:not(:disabled) .recent-photo-open,
+  :root .recent-photo-button:active:not(:disabled) .recent-photo-open { transform: none; }
 }
