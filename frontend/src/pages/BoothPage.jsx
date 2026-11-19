@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CameraStage from "../components/camera/CameraStage";
-import StickerPicker from "../components/stickers/StickerPicker";
+import StickerPicker, { PlacedStickerList } from "../components/stickers/StickerPicker";
 import { CvUiContext } from "../components/camera/CvUiContext";
 import useStickers from "../hooks/useStickers";
 import { FRAMES } from "../data/frames";
@@ -12,6 +12,7 @@ import "../styles/booth-icons.css";
 const PANELS = [
   { id: "guide", label: "Hướng dẫn" },
   { id: "stickers", label: "Sticker" },
+  { id: "placed", label: "Đã dán" },
 ];
 
 const DWELL_DURATION_MS = 700;
@@ -25,6 +26,7 @@ function stickerResultMessage(result, kind) {
 }
 
 export default function BoothPage() {
+  const [cameraPhase, setCameraPhase] = useState("live");
   const [activePanel, setActivePanel] = useState("guide");
   const [recentPhotos, setRecentPhotos] = useState([]);
   const [galleryBusy, setGalleryBusy] = useState(false);
@@ -550,7 +552,7 @@ export default function BoothPage() {
           </p>
         </header>
 
-        <div className="interaction-hint" role="status">
+        {(cameraPhase === "live" || cameraPhase === "countdown") && <div className="interaction-hint" role="status">
           {ready
             ? stickerMessage ||
               (placements.length > 0 && trackingState === "TEMPORARY_HOLD"
@@ -559,12 +561,13 @@ export default function BoothPage() {
                   ? "Không nhận diện được khuôn mặt. Hãy nhìn về phía camera."
                   : controlMessage)
             : "Có thể dùng chuột để chọn công cụ."}
-        </div>
+        </div>}
 
         <div ref={interactionRef} className="booth-layout">
           <div ref={cameraColumnRef} className="camera-column">
             <CameraStage
               frame={selectedFrame}
+              onPhaseChange={setCameraPhase}
               controllerMode={controllerMode}
               onControllerModeChange={setControllerMode}
             />
@@ -588,7 +591,7 @@ export default function BoothPage() {
                       setActivePanel(panel.id);
                     }}
                   >
-                    {panel.label}
+                    {panel.id === "placed" ? `Đã dán (${placements.length})` : panel.label}
                   </button>
                 ))}
               </nav>
@@ -621,18 +624,28 @@ export default function BoothPage() {
                     <StickerPicker
                       ready={stickersReady}
                       error={assetError}
-                      placements={placements}
                       activeKind={activeDwellKind}
                       selectedKind={selectedSnapKind}
                       onPick={handleStickerPick}
-                      onRemove={removeSticker}
-                      onClear={clearStickers}
                     />
+                  )}
+                  {activePanel === "placed" && (
+                    <PlacedStickerList placements={placements} onRemove={removeSticker} />
                   )}
                 </div>
               </div>
 
               <div className="panel-scroll-controls" data-cv-selectable>
+                {activePanel === "placed" && (
+                  <button
+                    type="button"
+                    className="clear-stickers-button panel-clear-stickers"
+                    onClick={clearStickers}
+                    disabled={placements.length === 0}
+                  >
+                    Xóa tất cả
+                  </button>
+                )}
                 <button
                   type="button"
                   className="scroll-button"

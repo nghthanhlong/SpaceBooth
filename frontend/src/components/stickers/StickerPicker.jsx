@@ -3,12 +3,9 @@ import { FACE_STICKERS as STICKERS } from "../../data/stickers";
 export default function StickerPicker({
   ready,
   error,
-  placements,
   activeKind,
   selectedKind,
   onPick,
-  onRemove,
-  onClear,
 }) {
   return (
     <>
@@ -68,6 +65,14 @@ export default function StickerPicker({
         <p className="muted-text">Đang tải sticker…</p>
       )}
 
+
+    </>
+  );
+}
+
+
+export function PlacedStickerList({ placements, onRemove }) {
+  return (
       <div className="placed-stickers">
         <h3>Đã dán: {placements.length}</h3>
 
@@ -102,16 +107,7 @@ export default function StickerPicker({
             );
           })}
 
-          <button
-            type="button"
-            className="clear-stickers-button"
-            onClick={onClear}
-            disabled={placements.length === 0}
-          >
-            Xóa tất cả
-          </button>
         </div>
       </div>
-    </>
   );
 }
