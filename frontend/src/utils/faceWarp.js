@@ -103,5 +103,5 @@ export class FaceWarpRenderer {
     };
     for(let y=y0;y<y1;y+=step)for(let x=x0;x<x1;x+=step){const a={x,y},b={x:Math.min(x+step,x1),y},c={x,y:Math.min(y+step,y1)},d={x:b.x,y:c.y};triangle(a,b,c);triangle(b,d,c);}
   }
-  dispose(){if(this.gl){this.gl.deleteTexture(this.texture);this.gl.deleteBuffer(this.buffer);this.gl.deleteProgram(this.program);}this.gl=null;this.canvas=null;this.source=null;}
+  dispose(){if(this.gl){this.gl.deleteTexture(this.texture);this.gl.deleteBuffer(this.buffer);this.gl.deleteProgram(this.program);this.gl.getExtension('WEBGL_lose_context')?.loseContext();}this.gl=null;this.canvas=null;this.source=null;}
 }

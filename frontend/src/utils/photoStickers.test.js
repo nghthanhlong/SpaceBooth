@@ -1,7 +1,29 @@
-import {describe,it,expect} from 'vitest';
-import {insertPhotoSticker,adjustedFace} from './photoStickers';
+import {describe,it,expect,vi,afterEach} from 'vitest';
+import {insertPhotoSticker,adjustedFace,renderPhotoStickers,releasePhotoRendering} from './photoStickers';
+
+afterEach(()=>vi.unstubAllGlobals());
 
 describe('post-capture sticker edits',()=>{
+  it('cancels obsolete work, decodes once and releases the photo cache',async()=>{
+    let finishDecode;
+    const decode=vi.fn(()=>new Promise(resolve=>{finishDecode=resolve;}));
+    vi.stubGlobal('Image',class {naturalWidth=100;naturalHeight=100;decode=decode;});
+    vi.stubGlobal('document',{createElement:()=>({getContext:()=>({drawImage(){}}),toDataURL:()=> 'data:image/png;base64,test'})});
+    const photo={id:'p',previewUrl:'blob:photo',faces:[]};
+    const first=renderPhotoStickers(photo,[]);
+    const aborted=expect(first).rejects.toMatchObject({name:'AbortError'});
+    const edits=[];
+    const second=renderPhotoStickers(photo,edits);
+    expect(renderPhotoStickers(photo,edits)).toBe(second);
+    expect(decode).toHaveBeenCalledTimes(1);
+    finishDecode();
+    await aborted;
+    expect(await second).toBe('data:image/png;base64,test');
+    releasePhotoRendering([photo]);
+    const third=renderPhotoStickers(photo,[]);
+    expect(decode).toHaveBeenCalledTimes(2);
+    finishDecode();await third;
+  });
   it('replaces overlapping slots only on the chosen face',()=>{
     const items=[{id:'a',kind:'gojo',faceId:1},{id:'b',kind:'frieren',faceId:1},{id:'c',kind:'gojo',faceId:2}];
     const next=insertPhotoSticker(items,{id:'d',kind:'glasses',faceId:1});

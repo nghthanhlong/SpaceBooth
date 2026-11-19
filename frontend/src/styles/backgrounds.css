@@ -1,0 +1,138 @@
+:root[data-background] {
+  --booth-foreground: #f8fafc;
+  --booth-muted: #cbd5e1;
+  --booth-surface: #0f172a;
+  --booth-panel: #1e293b;
+  --booth-button: #1e293b;
+  --booth-border: #64748b;
+  --booth-accent: #c4b5fd;
+  color-scheme: dark;
+  background: #0f172a;
+  color: var(--booth-foreground);
+}
+:root[data-background="white"] {
+  --booth-foreground: #172033;
+  --booth-muted: #475569;
+  --booth-surface: #ffffffed;
+  --booth-panel: #f1f5f9f2;
+  --booth-button: #fff;
+  --booth-border: #94a3b8;
+  --booth-accent: #6d28d9;
+  color-scheme: light;
+  background: #f8fafc;
+}
+:root[data-background="cyberpunk"] {
+  --booth-surface: #0b1028d9;
+  --booth-panel: #141735db;
+  --booth-border: #9d74b8;
+  --booth-accent: #67e8f9;
+}
+:root[data-background="sakura"] {
+  --booth-foreground: #43283c;
+  --booth-muted: #68435c;
+  --booth-surface: #fff6fae0;
+  --booth-panel: #fcebf5e0;
+  --booth-button: #fff5fa;
+  --booth-border: #bb7b9f;
+  --booth-accent: #9d285e;
+  color-scheme: light;
+  background: #f5d8e7;
+}
+:root[data-background="snow"] {
+  --booth-surface: #121b39d9;
+  --booth-panel: #242943db;
+  --booth-border: #a5a8d3;
+  --booth-accent: #e9d5ff;
+}
+.booth-backdrop { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: #0f172a; background-position: center; background-size: cover; }
+.booth-backdrop--white { background: #f8fafc; }
+.booth-backdrop--cyberpunk { background-image: linear-gradient(#070b1f26,#070b1f26), url('/backgrounds/cyberpunk.png'); }
+.booth-backdrop--sakura { background-image: url('/backgrounds/sakura.png'); }
+.booth-backdrop--snow { background-image: url('/backgrounds/snow-village.png'); }
+:root[data-background] .app-shell { position: relative; z-index: 1; }
+:root[data-background] :is(.strip-review,.qr-screen,.capture-screen,.photo-review,.photo-sticker-editor__selection,.photo-sticker-editor__settings) { background: var(--booth-surface); border-color: var(--booth-border); color: var(--booth-foreground); }
+:root[data-background] :is(.control-panel,.photo-panel,.saved-albums,.qr-footer) { background: var(--booth-panel); border-color: var(--booth-border); color: var(--booth-foreground); }
+:root[data-background] :is(.secondary-button,.audio-button,.debug-button,.panel-button,.scroll-button,.sticker-option,.strip-review__check,.photo-sticker-editor button,.photo-sticker-editor select,.photo-sticker-editor input[type="number"]) { background: var(--booth-button); border-color: var(--booth-border); color: var(--booth-foreground); }
+:root[data-background] .photo-sticker-editor .photo-sticker-editor__image { background: transparent; }
+:root[data-background] :is(.brand span,.system-status,.interaction-hint,.photo-feedback,.camera-photo-count,.muted-text,.placed-sticker-row,.qr-footer p) { color: var(--booth-muted); }
+:root[data-background] .brand h1 { color: var(--booth-accent); }
+:root[data-background] :is(.secondary-button,.photo-sticker-editor button)[aria-pressed="true"] { background: #166534; color: #fff; border-color: #86efac; }
+:root[data-background] .panel-button[aria-pressed="true"] { background: #43308a; color: #fff; border-color: #c4b5fd; }
+:root[data-background] .sticker-option.is-selected { border-color: #22c55e; box-shadow: 0 0 0 2px #22c55e55; }
+:root[data-background] .app-header { border-color: var(--booth-border); }
+:root[data-background] .panel-scroll { scrollbar-color: var(--booth-border) var(--booth-panel); }
+:root[data-background] .photo-sticker-editor__control input[type="range"] { accent-color: #7c3aed; }
+.background-picker { position: relative; display: flex; z-index: 50; }
+.background-picker__trigger { display: flex; align-items: center; gap: 8px; }
+.background-picker__menu { position: absolute; bottom: calc(100% + 10px); right: 0; width: min(270px, calc(100vw - 40px)); padding: 8px; border: 1px solid var(--booth-border); border-radius: 16px; background: var(--booth-button); color: var(--booth-foreground); box-shadow: 0 12px 40px #02061755; }
+.background-picker__menu button { width: 100%; min-height: 52px; padding: 6px 10px; display: grid; grid-template-columns: 56px 1fr 20px; align-items: center; gap: 10px; text-align: left; background: transparent; color: inherit; border: 1px solid transparent; border-radius: 10px; }
+.background-picker__menu button:hover, .background-picker__menu button[aria-pressed="true"] { border-color: var(--booth-border); background: #a78bfa25; }
+.background-picker__swatch { display: block; height: 38px; border: 1px solid #94a3b8; border-radius: 8px; background-size: cover; background-position: center; }
+.booth-snow, .booth-snow i { position: absolute; inset: 0; pointer-events: none; }
+.booth-snow i { top: -600px; bottom: -600px; background-image: radial-gradient(circle at 20px 30px, #fff 0 1.4px, transparent 2px), radial-gradient(circle at 110px 160px, #fff9 0 1px, transparent 1.7px), radial-gradient(circle at 215px 95px, #fff 0 1.8px, transparent 2.5px); background-size: 270px 300px; animation: booth-snow-fall 15s linear infinite; }
+.booth-snow i:nth-child(2) { opacity: .65; background-size: 190px 200px; animation-duration: 23s; animation-delay: -8s; }
+.booth-snow i:nth-child(3) { opacity: .5; background-size: 390px 300px; animation-duration: 10s; animation-delay: -4s; }
+@keyframes booth-snow-fall { from {transform: translate3d(-25px,0,0);} to {transform: translate3d(25px,600px,0);} }
+@media (prefers-reduced-motion: reduce) { .booth-snow i { animation: none; } }
+
+/* Review panels cover the camera with the chosen scene, not a transparent live feed. */
+:root[data-background] { --booth-scene: none; --booth-review-fill: #0f172a; }
+:root[data-background="white"] { --booth-review-fill: #ffffff; }
+:root[data-background="cyberpunk"] { --booth-scene: url('/backgrounds/cyberpunk.png'); --booth-review-fill: #0b1028c7; }
+:root[data-background="sakura"] { --booth-scene: url('/backgrounds/sakura.png'); --booth-review-fill: #fff6fad9; }
+:root[data-background="snow"] { --booth-scene: url('/backgrounds/snow-village.png'); --booth-review-fill: #121b39c7; }
+:root[data-background] :is(.strip-review,.qr-screen,.capture-screen) {
+  background-color: #0f172a;
+  background-image: linear-gradient(var(--booth-review-fill),var(--booth-review-fill)), var(--booth-scene);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  isolation: isolate;
+}
+:root[data-background="snow"] :is(.strip-review,.qr-screen)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image: radial-gradient(circle at 20px 30px,#fffd 0 1.3px,transparent 2px),radial-gradient(circle at 110px 160px,#fff9 0 1px,transparent 1.7px);
+  background-size: 180px 200px;
+  animation: booth-panel-snow 18s linear infinite;
+}
+@keyframes booth-panel-snow { from {background-position: 0 0;} to {background-position: 180px 600px;} }
+@media (prefers-reduced-motion: reduce) { :root[data-background="snow"] :is(.strip-review,.qr-screen)::before { animation: none; } }
+:root[data-background] :is(.qr-heading p,.qr-instructions p,.selected-label) { color: var(--booth-muted); }
+:root[data-background] :is(.qr-heading h2,.qr-instructions a) { color: var(--booth-accent); }
+:root[data-background] .frame-option { background: var(--booth-button); color: var(--booth-foreground); border-color: var(--booth-border); }
+:root[data-background] .frame-option[aria-pressed="true"] { background: #43308a; color: #fff; border-color: #c4b5fd; }
+
+/* Keep text over scenery on its own readable surface for every theme. */
+:root[data-background] { --booth-text-plate: #0f172ac7; }
+:root[data-background="white"] { --booth-text-plate: #ffffffd9; }
+:root[data-background="cyberpunk"] { --booth-text-plate: #0b1028c7; }
+:root[data-background="sakura"] { --booth-text-plate: #fff6fad9; }
+:root[data-background="snow"] { --booth-text-plate: #121b39c7; }
+:root[data-background] :is(.app-header,.interaction-hint,.camera-toolbar,.photo-feedback) {
+  background: var(--booth-text-plate);
+  color: var(--booth-foreground);
+  border: 1px solid var(--booth-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+:root[data-background] .interaction-hint { margin-block: 12px; }
+:root[data-background] .camera-toolbar { margin-top: 12px; }
+:root[data-background] .photo-feedback { margin-bottom: 12px; }
+:root[data-background] :is(.instructions,.instructions li,.instructions li::marker) { color: var(--booth-foreground); }
+:root[data-background] .photo-panel-heading span { color: var(--booth-muted); }
+:root[data-background] .panel-scroll-controls { border-color: var(--booth-border); }
+:root[data-background] .background-picker__menu { background: var(--booth-button); }
+
+/* Translucency without a costly full-screen backdrop blur. */
+:root[data-background] { --booth-text-shadow: 0 1px 2px #0009; }
+:root[data-background="white"], :root[data-background="sakura"] { --booth-text-shadow: 0 1px 1px #fff9; }
+:root[data-background] :is(.brand,.system-status,.interaction-hint,.photo-feedback,.camera-photo-count,.instructions,.strip-review__bar,.qr-heading) { text-shadow: var(--booth-text-shadow); }
+:root[data-background] .app-header { border-color: color-mix(in srgb, var(--booth-border) 55%, transparent); }
+:root[data-background] .background-picker__menu { text-shadow: none; }
+:root[data-background="snow"] :is(.strip-review,.qr-screen)::before { animation: none; }
+:root[data-background] .booth-backdrop { contain: strict; }

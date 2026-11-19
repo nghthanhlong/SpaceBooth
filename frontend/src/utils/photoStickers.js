@@ -6,6 +6,7 @@ import { BaldRenderer } from './baldRenderer';
 
 const sprites = new Map();
 const renderedPhotos = new WeakMap();
+const decodedPhotos = new WeakMap();
 const EMPTY_EDITS = [];
 async function load(src) {
   const image = new Image(); image.src = src; await image.decode(); return image;
@@ -32,17 +33,34 @@ export function adjustedFace(face, edit, size = {width:1,height:1}) {
     return {...p,x:x+(px*c-py*s)/size.width+edit.dx,y:y+(px*s+py*c)/size.height+edit.dy};
   })};
 }
-export function renderPhotoStickers(photo, edits = EMPTY_EDITS) {
-  let cache=renderedPhotos.get(photo);
-  if(!cache){cache=new WeakMap();renderedPhotos.set(photo,cache);}
-  if(!cache.has(edits)){
-    const task=renderPhoto(photo,edits);cache.set(edits,task);
-    task.catch(()=>cache.delete(edits));
-  }
-  return cache.get(edits);
+function checkCancelled(signal) {
+  if (signal.aborted) throw new DOMException('Rendering superseded', 'AbortError');
 }
-async function renderPhoto(photo, edits) {
-  const image = await load(photo.previewUrl);
+export function releasePhotoRendering(photos) {
+  for (const photo of photos) {
+    renderedPhotos.get(photo)?.controller.abort();
+    renderedPhotos.delete(photo); decodedPhotos.delete(photo);
+  }
+}
+export function renderPhotoStickers(photo, edits = EMPTY_EDITS) {
+  const cached = renderedPhotos.get(photo);
+  if (cached?.edits === edits) return cached.task;
+  cached?.controller.abort();
+  const controller = new AbortController();
+  const task = renderPhoto(photo, edits, controller.signal);
+  const entry = {edits, controller, task};
+  renderedPhotos.set(photo, entry);
+  task.catch(() => { if (renderedPhotos.get(photo) === entry) renderedPhotos.delete(photo); });
+  return task;
+}
+async function renderPhoto(photo, edits, signal) {
+  if (!decodedPhotos.has(photo)) {
+    const task=load(photo.previewUrl);
+    decodedPhotos.set(photo,task);
+    task.catch(()=>{if(decodedPhotos.get(photo)===task)decodedPhotos.delete(photo);});
+  }
+  const image = await decodedPhotos.get(photo);
+  checkCancelled(signal);
   const canvas = document.createElement('canvas');
   canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
   const ctx = canvas.getContext('2d');
@@ -73,6 +91,7 @@ async function renderPhoto(photo, edits) {
     try {
       const start=performance.now(), f=transformed(face);
       while (!renderer.hasMask(f.id)) {
+        checkCancelled(signal);
         if (renderer.status === 'error' || performance.now()-start > 20000) throw new Error('Không nhận diện được vùng tóc. Hãy bỏ Hói đầu rồi thử lại.');
         renderer.render(ctx,size,[f]);
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -84,6 +103,7 @@ async function renderPhoto(photo, edits) {
     const type = EFFECT_BY_ID[edit.kind]?.type;
     if (type === 'warp' || type === 'bald') continue;
     const icon = await sprite(edit.kind);
+    checkCancelled(signal);
     const source = effectFaces.get(edit.id);
     ctx.save();
     if (source) {
@@ -100,7 +120,16 @@ async function renderPhoto(photo, edits) {
     }
     ctx.restore();
   }
-  return canvas.toDataURL('image/png');
+  checkCancelled(signal);
+  if (typeof FileReader === 'undefined') return canvas.toDataURL('image/png');
+  return new Promise((resolve, reject) => canvas.toBlob(blob => {
+    if (signal.aborted) return reject(new DOMException('Rendering superseded', 'AbortError'));
+    if (!blob) return reject(new Error('Không thể xuất ảnh sticker.'));
+    const reader = new FileReader();
+    reader.onload = () => signal.aborted ? reject(new DOMException('Rendering superseded', 'AbortError')) : resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  }, 'image/png'));
 }
 export async function photosWithStickers(photos, edits) {
   return Promise.all(photos.map(async photo => edits[photo.id]?.length

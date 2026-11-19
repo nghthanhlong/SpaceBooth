@@ -51,7 +51,7 @@ function loadImage(src) {
     throw error;
   });
   photoCache.set(src, promise);
-  while (photoCache.size > 10) photoCache.delete(photoCache.keys().next().value);
+  while (photoCache.size > 5) photoCache.delete(photoCache.keys().next().value);
   return promise;
 }
 
@@ -82,13 +82,18 @@ async function decodeFrame(src) {
 
 const frameCache = new Map();
 function loadFrame(src) {
-  if (!frameCache.has(src)) {
-    frameCache.set(src, decodeFrame(src).catch((error) => {
-      frameCache.delete(src);
-      throw error;
-    }));
+  if (frameCache.has(src)) {
+    const task = frameCache.get(src);
+    frameCache.delete(src); frameCache.set(src, task);
+    return task;
   }
-  return frameCache.get(src);
+  const task = decodeFrame(src).catch(error => {
+    if (frameCache.get(src) === task) frameCache.delete(src);
+    throw error;
+  });
+  frameCache.set(src, task);
+  while (frameCache.size > 4) frameCache.delete(frameCache.keys().next().value);
+  return task;
 }
 
 function exportPng(canvas) {
