@@ -1,8 +1,8 @@
-.photo-sticker-editor { width: min(100%, 800px); display: grid; gap: 12px; }
+.photo-sticker-editor { width: min(100%, 1240px); display: grid; gap: 12px; }
 .photo-sticker-editor button, .photo-sticker-editor select { min-height: 48px; border: 1px solid #64748b; border-radius: 12px; padding: 8px; background: #1e293b; color: #f8fafc; }
 .photo-sticker-editor button[aria-pressed="true"] { background: #166534; border-color: #86efac; }
 .photo-sticker-editor button:disabled { opacity: .5; }
-.photo-sticker-editor__photos, .photo-sticker-editor__items, .photo-sticker-editor__adjust { display: flex; flex-wrap: wrap; gap: 8px; }
+.photo-sticker-editor__photos { display: flex; flex-wrap: wrap; gap: 8px; }
 .photo-sticker-editor__catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px,1fr)); gap: 8px; }
 .photo-sticker-editor__catalog button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: .8rem; }
 .photo-sticker-editor__catalog img { width: 64px; height: 58px; object-fit: contain; }
@@ -12,3 +12,47 @@
 .photo-sticker-editor__adjust label { display: grid; gap: 4px; flex: 1 1 150px; }
 .photo-sticker-editor__adjust input { min-height: 44px; width: 100%; }
 .photo-sticker-editor__items > div { display: flex; gap: 4px; }
+
+.photo-sticker-editor__workspace {
+  display: grid;
+  grid-template-columns: minmax(130px, .7fr) minmax(0, 2.6fr) minmax(190px, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+.photo-sticker-editor__selection, .photo-sticker-editor__settings {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  background: #0f172a;
+}
+.photo-sticker-editor__workspace h3 { margin: 0 0 12px; font-size: 1rem; }
+.photo-sticker-editor__items, .photo-sticker-editor__adjust { display: grid; gap: 12px; }
+.photo-sticker-editor__items > div { min-width: 0; }
+.photo-sticker-editor__items > div > button:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.photo-sticker-editor__items > div > button:last-child { flex-shrink: 0; width: 44px; }
+.photo-sticker-editor__adjust label { min-width: 0; }
+.photo-sticker-editor__adjust input { min-width: 0; }
+@media (max-width: 760px) {
+  .photo-sticker-editor__workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .photo-sticker-editor__workspace > .photo-sticker-editor__image { grid-column: 1 / -1; grid-row: 1; }
+}
+@media (max-width: 420px) {
+  .photo-sticker-editor__workspace { grid-template-columns: minmax(0, 1fr); }
+}
+
+.photo-sticker-editor__control { display: grid; gap: 4px; min-width: 0; }
+.photo-sticker-editor__control-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.photo-sticker-editor__control-heading label { display: block; flex: 1; }
+.photo-sticker-editor__control-heading input[type="number"] {
+  width: 70px;
+  flex: 0 0 70px;
+  min-height: 44px;
+  padding: 6px;
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  background: #1e293b;
+  color: #f8fafc;
+  text-align: center;
+  font: inherit;
+}

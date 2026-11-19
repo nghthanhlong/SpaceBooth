@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import BoothIcon from "../layout/BoothIcon";
 import PhotoStickerEditor from "./PhotoStickerEditor";
-import { photosWithStickers } from "../../utils/photoStickers";
+import { photosWithStickers, releasePhotoRendering } from "../../utils/photoStickers";
 import { composePhotoStrip, STRIP_TEMPLATES } from "../../utils/photoStrip";
 import "../../styles/strip-review.css";
 
@@ -36,6 +36,8 @@ export default function CaptureScreen({
   onSave,
   onDiscard,
 }) {
+  useEffect(() => () => releasePhotoRendering(photos), [photos]);
+
   const [selectedIds, setSelectedIds] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -71,8 +73,8 @@ export default function CaptureScreen({
     const key = { selected, templateId, photoEdits };
     setSaveError(null);
 
-    photosWithStickers(selected, photoEdits)
-      .then(photos => composePhotoStrip(photos, templateId, { preview: true }))
+    const timer = setTimeout(() => photosWithStickers(selected, photoEdits)
+      .then(photos => active ? composePhotoStrip(photos, templateId, { preview: true }) : null)
       .then((file) => {
         if (!active) return;
         url = URL.createObjectURL(file);
@@ -85,10 +87,11 @@ export default function CaptureScreen({
             error: error?.message || "Không thể tạo dải ảnh.",
           });
         }
-      });
+      }), 160);
 
     return () => {
       active = false;
+      clearTimeout(timer);
       if (url) URL.revokeObjectURL(url);
     };
   }, [editing, selected, templateId, photoEdits]);

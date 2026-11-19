@@ -12,6 +12,10 @@ import { createPhotoSession, getPhotoSessions } from "../../firebase";
 import { CvUiContext } from "./CvUiContext";
 import CountdownOverlay from "./CountdownOverlay";
 import CaptureScreen from "./CaptureScreen";
+import BackgroundPicker from "../layout/BackgroundPicker";
+import CameraBackgroundPicker from "./CameraBackgroundPicker";
+import { VirtualBackground } from "../../utils/virtualBackground";
+import "../../styles/button-feedback.css";
 import QRDisplay from "./QRDisplay";
 import "../../styles/capture.css";
 
@@ -81,6 +85,16 @@ export default function CameraStage({
   const bridge = useContext(CvUiContext);
   const audio = useCountdownAudio();
 
+  const virtualBackgroundRef = useRef(null);
+  const [cameraBackground, setCameraBackground] = useState('none');
+  const [backgroundNotice, setBackgroundNotice] = useState('');
+  const selectCameraBackground = useCallback(id => {
+    virtualBackgroundRef.current ??= new VirtualBackground();
+    virtualBackgroundRef.current.select(id);
+    setCameraBackground(id);
+    setBackgroundNotice(virtualBackgroundRef.current.notice());
+  }, []);
+  useEffect(() => () => virtualBackgroundRef.current?.dispose(), []);
   const rootRef = useRef(null);
   const cameraRef = useRef(null);
   const overlayRef = useRef(null);
@@ -239,6 +253,8 @@ export default function CameraStage({
 
   const startCountdown = useCallback(() => {
     if (phaseRef.current !== "live" || savingRef.current) return;
+    const backdropNotice = virtualBackgroundRef.current?.notice();
+    if (backdropNotice) { setFeedback(backdropNotice); return; }
     const effectNotice = bridge?.getEffectNotice?.();
     if (effectNotice) { setFeedback(effectNotice); return; }
 
@@ -285,7 +301,7 @@ export default function CameraStage({
    * Snapshot rendering with robust fallback:
    * Validates transforms before capture and composites stickers using live or preserved transforms.
    */
-  const takeSnapshot = useCallback(() => {
+  const takeSnapshot = useCallback(async () => {
     if (phaseRef.current !== "countdown") return;
 
     // Pre-snapshot validation: verify sticker transforms are safe
@@ -332,7 +348,16 @@ export default function CameraStage({
     ctx.restore();
 
     const size = { width: canvas.width, height: canvas.height };
-    const rawFaces = dataRef.current?.faces ?? [];
+    const rawFaces = structuredClone(dataRef.current?.faces ?? []);
+    try {
+      await virtualBackgroundRef.current?.snapshot(ctx, size);
+      if (!mountedRef.current) return;
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setFeedback(error.message || 'Không thể ghép nền. Hãy thử lại.');
+      changePhase('live');
+      return;
+    }
     const faces = bridge?.renderFaceEffects?.(ctx, size, rawFaces, {snapshot:true}) ?? rawFaces;
 
     // Pass snapshot flag so fallback transforms are safely composited
@@ -559,7 +584,15 @@ export default function CameraStage({
 
     let animationId;
 
+    let lastDraw = 0;
+    let lastDebug = 0;
     function draw() {
+      const now = performance.now();
+      if (document.hidden || !['live','countdown','capturing'].includes(phaseRef.current) || now - lastDraw < 1000 / 30 - 1) {
+        animationId = requestAnimationFrame(draw);
+        return;
+      }
+      lastDraw = now;
       if (video.readyState >= 2 && video.videoWidth > 0) {
         const width = video.videoWidth;
         const height = video.videoHeight;
@@ -578,6 +611,8 @@ export default function CameraStage({
         cameraContext.scale(-1, 1);
         cameraContext.drawImage(video, 0, 0, width, height);
         cameraContext.restore();
+        virtualBackgroundRef.current?.render(cameraContext, size);
+        setBackgroundNotice(virtualBackgroundRef.current?.notice() ?? '');
 
         ctx.clearRect(0, 0, width, height);
 
@@ -615,7 +650,8 @@ export default function CameraStage({
         }
 
         // Live debug data refresh
-        if (debugMode) {
+        if (debugMode && now - lastDebug >= 200) {
+          lastDebug = now;
           const info = bridge?.getDebugInfo?.();
           setDebugData(info);
         }
@@ -934,6 +970,8 @@ export default function CameraStage({
             {audio.enabled ? "Âm thanh: Bật" : "Bật âm thanh"}
           </button>
 
+          <BackgroundPicker />
+
           <button
             type="button"
             className="primary-button"
@@ -948,6 +986,9 @@ export default function CameraStage({
             {phase === "countdown" ? "Đang đếm ngược…" : "Chụp ảnh"}
           </button>
 
+          <CameraBackgroundPicker value={cameraBackground} onChange={selectCameraBackground}
+            disabled={phase === 'countdown' || phase === 'capturing' || saving} />
+
           <button
             type="button"
             className="secondary-button"
@@ -961,6 +1002,7 @@ export default function CameraStage({
 
       {(phase === "live" || phase === "countdown") && <p className="photo-feedback" role="status">
         {audio.error ||
+          backgroundNotice ||
           feedback ||
           "Bật âm thanh một lần, sau đó giơ chữ V để chụp."}
       </p>}

@@ -81,7 +81,11 @@ export function drawFaceSticker(ctx,kind,image,pose,size,face) {
   if(f) image.faceLayouts??=new Map();
   const key=face?.id??pose.faceId;
   let layout=f?Object.fromEntries([1,10,13,14,61,291,78,308,152,234,454,127,356,0,17,172,397,176,400].map(i=>[i,f.local(i)])):image.faceLayouts?.get(key);
-  if(f) image.faceLayouts.set(key,layout);
+  if(f) {
+    image.faceLayouts.delete(key);
+    image.faceLayouts.set(key,layout);
+    while(image.faceLayouts.size>32) image.faceLayouts.delete(image.faceLayouts.keys().next().value);
+  }
   if(!layout) return true;
   const b=boundsOf(image);
   ctx.save();ctx.translate(pose.x,pose.y);ctx.rotate(pose.angle);ctx.scale(pose.width,pose.width);

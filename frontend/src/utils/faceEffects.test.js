@@ -1,6 +1,17 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {faceFrame,placeSticker,drawFaceSticker,slotsOverlap} from './faceStickerGeometry';
 import {normalizeHairMask,paintScalp,BaldRenderer} from './baldRenderer';
+it('keeps face sprite history bounded across long sessions',()=>{
+  const {ctx}=context();
+  const img={naturalWidth:240,naturalHeight:200,faceBounds:{x:0,y:0,w:240,h:200}};
+  for(let id=0;id<1000;id++){
+    const f={...face(),id};
+    drawFaceSticker(ctx,'gojo',img,placeSticker(f,'gojo',size),size,f);
+  }
+  expect(img.faceLayouts.size).toBe(32);
+  expect(img.faceLayouts.has(0)).toBe(false);
+  expect(img.faceLayouts.has(999)).toBe(true);
+});
 const size={width:1000,height:1000};
 function face(){
   const landmarks=Array.from({length:478},()=>({x:.5,y:.5,z:0}));
