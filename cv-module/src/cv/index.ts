@@ -24,3 +24,5 @@ export { DEFAULT_POINT, PointDetector, type PointConfig } from "./point";
 export { FACE, HAND } from "./landmarks";
 export { DEFAULT_TRACKING_CONFIG } from "./types";
 export type * from "./types";
+// Keep the segmentation task resolved from the same SDK as the existing CV engine.
+export { ImageSegmenter as HairImageSegmenter, FilesetResolver as HairFilesetResolver } from "@mediapipe/tasks-vision";

@@ -236,6 +236,8 @@ export default function CameraStage({
 
   const startCountdown = useCallback(() => {
     if (phaseRef.current !== "live" || savingRef.current) return;
+    const effectNotice = bridge?.getEffectNotice?.();
+    if (effectNotice) { setFeedback(effectNotice); return; }
 
     const video = videoRef.current;
 
@@ -327,7 +329,8 @@ export default function CameraStage({
     ctx.restore();
 
     const size = { width: canvas.width, height: canvas.height };
-    const faces = dataRef.current?.faces ?? [];
+    const rawFaces = dataRef.current?.faces ?? [];
+    const faces = bridge?.renderFaceEffects?.(ctx, size, rawFaces, {snapshot:true}) ?? rawFaces;
 
     // Pass snapshot flag so fallback transforms are safely composited
     bridge?.drawStickers(
@@ -445,6 +448,8 @@ export default function CameraStage({
 
       if (remaining <= 0) {
         snapshotRef.current();
+        // A rejected snapshot keeps the countdown alive while tracking/model recovers.
+        if (phaseRef.current === "countdown") animationId = requestAnimationFrame(tick);
         return;
       }
 
@@ -573,7 +578,8 @@ export default function CameraStage({
         ctx.clearRect(0, 0, width, height);
 
         const data = dataRef.current;
-        const faces = data?.faces ?? [];
+        const rawFaces = data?.faces ?? [];
+        const faces = bridge?.renderFaceEffects?.(cameraContext, size, rawFaces) ?? rawFaces;
 
         bridge?.drawStickers(
           ctx,
@@ -588,7 +594,9 @@ export default function CameraStage({
 
         // Tracking notice for live preview
         const trackingStatus = bridge?.getTrackingStatus?.();
-        if (trackingStatus?.hasPlacements && phaseRef.current !== "review" && phaseRef.current !== "qr") {
+        const effectNotice = bridge?.getEffectNotice?.();
+        if (effectNotice) { setTrackingNotice(effectNotice); }
+        else if (trackingStatus?.hasPlacements && phaseRef.current !== "review" && phaseRef.current !== "qr") {
           if (trackingStatus.state === "TEMPORARY_HOLD") {
             setTrackingNotice("Đang giữ vị trí sticker...");
           } else if (trackingStatus.state === "TRACKING_LOST") {
