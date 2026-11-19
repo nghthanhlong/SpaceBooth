@@ -1,6 +1,6 @@
 const SCENES={dark:'#0f172a',white:'#ffffff',cyberpunk:'cyberpunk.png',sakura:'sakura.png',snow:'snow-village.png'};
-export function personMask(categories) {
-  const pixels=new Uint8ClampedArray(categories.length*4);
+export function personMask(categories, target) {
+  const pixels=target ?? new Uint8ClampedArray(categories.length*4);
   for(let i=0;i<categories.length;i++) {
     pixels[i*4]=pixels[i*4+1]=pixels[i*4+2]=255;
     pixels[i*4+3]=categories[i]>0&&categories[i]<=5?255:0;
@@ -32,10 +32,14 @@ export class VirtualBackground {
         if(data.type==='error')this.fail(data.message);
         if(data.type==='mask'){
           if(!this.pending||data.sequence!==this.pending.sequence)return;
-          const mask=document.createElement('canvas');mask.width=data.width;mask.height=data.height;
-          const ctx=mask.getContext('2d'),pixels=ctx.createImageData(data.width,data.height);
-          pixels.data.set(personMask(data.pixels));ctx.putImageData(pixels,0,0);
-          this.mask=mask;this.maskTime=performance.now();
+          this.mask ??= document.createElement('canvas');
+          const mask=this.mask,ctx=mask.getContext('2d');
+          if(mask.width!==data.width||mask.height!==data.height||!this.maskData){
+            mask.width=data.width;mask.height=data.height;
+            this.maskData=ctx.createImageData(data.width,data.height);
+          }
+          personMask(data.pixels,this.maskData.data);ctx.putImageData(this.maskData,0,0);
+          this.maskTime=performance.now();
           const pending=this.pending;this.pending=null;clearTimeout(pending.timer);pending.resolve();
         }
       };
@@ -50,7 +54,9 @@ export class VirtualBackground {
   notice(){return this.scene==='none'?'':this.status==='error'?'Nền webcam chưa sẵn sàng. Chọn lại nền hoặc chọn Nền thật.':!this.ready()||!this.mask?'Đang tải và tách người khỏi nền…':'';}
   request(ctx,size){
     if(!this.ready()||this.pending)return null;
-    this.input??=document.createElement('canvas');this.input.width=320;this.input.height=Math.max(1,Math.round(320*size.height/size.width));
+    this.input??=document.createElement('canvas');
+    const height=Math.max(1,Math.round(320*size.height/size.width));
+    if(this.input.width!==320||this.input.height!==height){this.input.width=320;this.input.height=height;}
     this.input.getContext('2d').drawImage(ctx.canvas,0,0,this.input.width,this.input.height);
     let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});
     // Live requests intentionally have no caller; keep rejection handled on disposal.
@@ -89,5 +95,5 @@ export class VirtualBackground {
     if(!this.ready())throw new Error('Nền webcam đã thay đổi. Hãy chụp lại.');
     this.composite(ctx,size);
   }
-  dispose(){this.generation++;this.rejectPending();this.worker?.terminate();this.worker=null;this.scene='none';this.status='idle';this.mask=null;this.image=null;this.input=null;this.foreground=null;}
+  dispose(){this.generation++;this.rejectPending();this.worker?.terminate();this.worker=null;this.scene='none';this.status='idle';this.mask=null;this.maskData=null;this.image=null;this.input=null;this.foreground=null;}
 }
