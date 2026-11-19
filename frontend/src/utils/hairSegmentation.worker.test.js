@@ -1,0 +1,23 @@
+import {it,expect,vi,afterEach} from 'vitest';
+const sdk=vi.hoisted(()=>({create:vi.fn(),segment:vi.fn(),resolve:vi.fn()}));
+vi.mock('spacebooth-cv',()=>({HairImageSegmenter:{createFromOptions:sdk.create},HairFilesetResolver:{forVisionTasks:sdk.resolve}}));
+afterEach(()=>vi.unstubAllGlobals());
+it('copies the category mask before release and closes transferred frames',async()=>{
+ const postMessage=vi.fn(),scope={postMessage};
+ vi.stubGlobal('self',scope);vi.stubGlobal('OffscreenCanvas',class{});
+ sdk.resolve.mockResolvedValue({wasmLoaderPath:'local'});sdk.create.mockResolvedValue({segmentForVideo:sdk.segment});
+ const pixels=new Uint8Array([0,1,3,1]);
+ sdk.segment.mockImplementation((_image,_timestamp,callback)=>callback({categoryMask:{width:2,height:2,getAsUint8Array:()=>pixels}}));
+ await import('./hairSegmentation.worker.js');
+ await scope.onmessage({data:{type:'init',wasmPath:'/mediapipe/wasm',modelPath:'/mediapipe/models/selfie_multiclass_256x256.tflite'}});
+ await vi.waitFor(()=>expect(postMessage).toHaveBeenCalledWith({type:'ready'}));
+ expect(sdk.resolve).toHaveBeenCalledWith('/mediapipe/wasm',true);
+ expect(sdk.create.mock.calls[0][1]).toMatchObject({baseOptions:{delegate:'CPU'},runningMode:'VIDEO',outputCategoryMask:true,outputConfidenceMasks:false});
+ const bitmap={close:vi.fn()};await scope.onmessage({data:{type:'frame',bitmap,faceId:7,timestamp:123,sequence:9}});
+ const sent=postMessage.mock.calls.find(([data])=>data.type==='mask')[0];
+ expect(sent).toMatchObject({faceId:7,width:2,height:2,sequence:9});expect([...sent.pixels]).toEqual([0,1,3,1]);expect(sent.pixels).not.toBe(pixels);
+ expect(bitmap.close).toHaveBeenCalledOnce();
+ sdk.segment.mockImplementationOnce(()=>{throw new Error('inference failed')});
+ const failedBitmap={close:vi.fn()};await scope.onmessage({data:{type:'frame',bitmap:failedBitmap,faceId:7,timestamp:124}});
+ expect(postMessage).toHaveBeenCalledWith({type:'error',message:'inference failed'});expect(failedBitmap.close).toHaveBeenCalledOnce();
+});

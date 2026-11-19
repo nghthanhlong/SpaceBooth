@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_TRACKING_CONFIG,
   FACE,
-  STICKER_SLOTS,
-  findSmartSnapTarget,
-  findSnapTarget,
-  placeSticker,
 } from "spacebooth-cv";
-import { STICKERS } from "../data/stickers";
+import { FACE_STICKERS as STICKERS } from "../data/stickers";
+import { EFFECT_BY_ID } from "../data/faceEffects";
+import { STICKER_SLOTS, findSmartSnapTarget, findSnapTarget, placeSticker, prepareSprite, drawFaceSticker, slotsOverlap } from "../utils/faceStickerGeometry";
+import { FaceWarpRenderer, createControls, warpPoint } from "../utils/faceWarp";
+import { BaldRenderer } from "../utils/baldRenderer";
 
 function toPx(point, size) {
   return {
@@ -50,6 +50,10 @@ export default function useStickers(customConfig = {}) {
 
   const imagesRef = useRef(new Map());
   const placementsRef = useRef([]);
+  const warpRendererRef = useRef(null);
+  const baldRendererRef = useRef(null);
+  const effectFacesRef = useRef(new Map());
+  useEffect(() => () => { warpRendererRef.current?.dispose(); warpRendererRef.current = null; baldRendererRef.current?.dispose(); baldRendererRef.current=null; }, []);
   const targetRef = useRef(null);
 
   // Persistent sticker transforms & tracking state storage
@@ -74,7 +78,12 @@ export default function useStickers(customConfig = {}) {
           new Promise((resolve, reject) => {
             const image = new Image();
 
-            image.onload = () => resolve([sticker.id, image]);
+            image.onload = () => {
+              try {
+                if (['hair','elf','cat','beard'].includes(EFFECT_BY_ID[sticker.id]?.type)) prepareSprite(image, sticker.id);
+                resolve([sticker.id, image]);
+              } catch (error) { reject(error); }
+            };
             image.onerror = () =>
               reject(new Error(`Không tải được sticker ${sticker.name}.`));
 
@@ -101,12 +110,16 @@ export default function useStickers(customConfig = {}) {
   }, []);
 
   const commitTarget = useCallback((target, kind) => {
-    if (!target) return false;
+    if (!target || !STICKER_SLOTS[kind]) return false;
+    if (kind === 'bald' && baldRendererRef.current?.status === 'error') {
+      baldRendererRef.current.dispose();
+      baldRendererRef.current = null;
+    }
 
     const replaced = placementsRef.current.filter(
       (previous) =>
         previous.faceId === target.face.id &&
-        STICKER_SLOTS[previous.kind] === STICKER_SLOTS[kind],
+        slotsOverlap(previous.kind, kind),
     );
     targetRef.current = null;
     if (replaced.length === 1 && replaced[0].kind === kind) {
@@ -131,6 +144,10 @@ export default function useStickers(customConfig = {}) {
     ];
 
     placementsRef.current = next;
+    if (!next.some(item => item.kind === 'bald')) {
+      baldRendererRef.current?.dispose();
+      baldRendererRef.current = null;
+    }
     setPlacements(next);
 
     // Trigger snapping animation effect
@@ -234,6 +251,10 @@ export default function useStickers(customConfig = {}) {
   const removeSticker = useCallback((id) => {
     const next = placementsRef.current.filter((item) => item.id !== id);
     placementsRef.current = next;
+    if (!next.some(item => item.kind === 'bald')) {
+      baldRendererRef.current?.dispose();
+      baldRendererRef.current = null;
+    }
     setPlacements(next);
     preservedTransformsRef.current.delete(id);
     smoothedPosesRef.current.delete(id);
@@ -247,6 +268,9 @@ export default function useStickers(customConfig = {}) {
     smoothedPosesRef.current.clear();
     recoveryStateRef.current.clear();
     snapAnimationRef.current = null;
+    effectFacesRef.current.clear();
+    baldRendererRef.current?.dispose();
+    baldRendererRef.current = null;
     setPlacements([]);
   }, []);
 
@@ -272,7 +296,11 @@ export default function useStickers(customConfig = {}) {
 
       let worstState = "TRACKING";
 
-      function drawImagePose(image, pose, opacity = 1) {
+      function drawImagePose(image, pose, opacity = 1, kind, face) {
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        if (drawFaceSticker(ctx, kind, image, pose, size, face)) { ctx.restore(); return; }
+        ctx.restore();
         const height = pose.width * (image.naturalHeight / image.naturalWidth);
 
         ctx.save();
@@ -411,6 +439,7 @@ export default function useStickers(customConfig = {}) {
           // Check snapping pop animation
           let extraScale = 1;
           if (
+            !EFFECT_BY_ID[item.kind] &&
             snapAnim &&
             snapAnim.faceId === face.id &&
             snapAnim.kind === item.kind &&
@@ -425,7 +454,7 @@ export default function useStickers(customConfig = {}) {
             width: finalPose.width * extraScale,
           };
 
-          drawImagePose(image, drawPose, 1.0);
+          drawImagePose(image, drawPose, 1.0, item.kind, face);
 
           if (currentState === "RECOVERY" && worstState === "TRACKING") {
             worstState = "RECOVERY";
@@ -458,7 +487,7 @@ export default function useStickers(customConfig = {}) {
             if (canRenderFallback) {
               // Draw using preserved transform so sticker does not disappear!
               const opacity = isSnapshot ? 1.0 : 0.88;
-              drawImagePose(image, preserved, opacity);
+              drawImagePose(image, preserved, opacity, item.kind, face);
             }
 
             // Escalate worstState
@@ -495,7 +524,7 @@ export default function useStickers(customConfig = {}) {
           if (img) {
             const rawPose = placeSticker(face, target.kind, size);
             if (isTransformFinite(rawPose)) {
-              drawImagePose(img, rawPose, 0.55);
+              drawImagePose(img, rawPose, 0.55, target.kind, face);
             }
           }
         }
@@ -503,6 +532,56 @@ export default function useStickers(customConfig = {}) {
     },
     [],
   );
+
+  // Apply camera-pixel effects before accessories. The return value contains the
+  // SAME warped landmarks, so teeth/ears/beard remain attached after deformation.
+  const renderFaceEffects = useCallback((ctx, size, faces = [], options = {}) => {
+    const now = performance.now();
+    const configs = configRef.current;
+    const sources = new Map(faces.filter(f => !f.stale).map(f => [f.id, f]));
+    const controls = [];
+    const baldFaces = [];
+    for (const item of placementsRef.current) {
+      const effect = EFFECT_BY_ID[item.kind];
+      if (!effect || !['warp', 'bald'].includes(effect.type)) continue;
+      let face = sources.get(item.faceId);
+      if (face?.stale) face = null;
+      const held = effectFacesRef.current.get(item.id);
+      if (!face && held) {
+        const p = held.face.landmarks[1];
+        face = Array.from(sources.values()).find(f => Math.hypot((f.landmarks[1].x-p.x)*size.width,(f.landmarks[1].y-p.y)*size.height) < Math.max(80, Math.abs(held.face.landmarks[263].x-held.face.landmarks[33].x)*size.width));
+        if (face) item.faceId = face.id;
+      }
+      if (face) effectFacesRef.current.set(item.id, {face, time:now});
+      else if (held && now-held.time <= (options.snapshot ? configs.maxSnapshotTransformAgeMs : configs.lostTimeoutMs)) face={...held.face,stale:true};
+      if (!face) continue;
+      sources.set(face.id,face);
+      if (effect.type === 'bald') baldFaces.push(face);
+      else controls.push(...createControls(face,item.kind,size));
+    }
+    const activeKeys = new Set(placementsRef.current.map(p=>p.id));
+    for (const key of effectFacesRef.current.keys()) if (!activeKeys.has(key)) effectFacesRef.current.delete(key);
+    if (controls.length) {
+      warpRendererRef.current ??= new FaceWarpRenderer();
+      warpRendererRef.current.render(ctx,size,controls);
+    }
+    const transformed = Array.from(sources.values()).map(face=> controls.length ? ({...face,landmarks:face.landmarks.map(p=>{const q=warpPoint({x:p.x*size.width,y:p.y*size.height},controls);return {...p,x:q.x/size.width,y:q.y/size.height};})}) : face);
+    if (baldFaces.length) {
+      baldRendererRef.current ??= new BaldRenderer();
+      baldRendererRef.current.render(ctx,size,baldFaces.map(face=>transformed.find(f=>f.id===face.id)??face),options);
+    }
+    // Preserve original stale faces for the pre-existing sticker fallback state machine.
+    return [...transformed, ...faces.filter(f=>!sources.has(f.id))];
+  }, []);
+
+  const getEffectNotice = useCallback(() => {
+    const bald = placementsRef.current.filter(item => item.kind === 'bald');
+    if (!bald.length) return '';
+    const renderer = baldRendererRef.current;
+    if (!renderer) return 'Đang tải bộ tách tóc…';
+    if (renderer.status === 'error') return renderer.notice();
+    return bald.some(item => !renderer.hasMask(item.faceId)) ? 'Đang nhận diện vùng tóc. Giữ mặt trong camera…' : '';
+  }, []);
 
   /**
    * Retrieves high-level tracking status for UI feedback and countdown synchronization.
@@ -550,6 +629,9 @@ export default function useStickers(customConfig = {}) {
 
     const validTransforms = [];
     for (const item of items) {
+      if (item.kind === 'bald' && !baldRendererRef.current?.hasMask(item.faceId)) {
+        return {valid:false,reason:'Chờ nhận diện vùng tóc trước khi chụp.',transforms:[]};
+      }
       const transform = preservedTransformsRef.current.get(item.id);
       if (!transform || !isTransformFinite(transform)) {
         return {
@@ -602,6 +684,8 @@ export default function useStickers(customConfig = {}) {
       placementsCount: placementsRef.current.length,
       preservedTransforms: transforms,
       snapshotValid: validateSnapshotTransforms().valid,
+      effectStatus: baldRendererRef.current?.status ?? 'idle',
+      effectError: baldRendererRef.current?.error ?? '',
       config: configRef.current,
     };
   }, [validateSnapshotTransforms]);
@@ -618,6 +702,8 @@ export default function useStickers(customConfig = {}) {
     removeSticker,
     clearStickers,
     drawStickers,
+    renderFaceEffects,
+    getEffectNotice,
     getTrackingStatus,
     validateSnapshotTransforms,
     getDebugInfo,

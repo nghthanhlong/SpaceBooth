@@ -1,4 +1,4 @@
-import { STICKERS } from "../../data/stickers";
+import { FACE_STICKERS as STICKERS } from "../../data/stickers";
 
 export default function StickerPicker({
   ready,
@@ -12,11 +12,11 @@ export default function StickerPicker({
 }) {
   return (
     <>
-      <h2>Chọn sticker</h2>
+      <h2>Sticker và hiệu ứng khuôn mặt</h2>
 
       <p className="muted-text">
         Chỉ ngón trỏ vào sticker và giữ yên 0.7s để tự động gắn lên mặt.
-        {" "}Sticker cùng vùng sẽ thay thế nhau; mũ và tai thỏ dùng chung vùng đầu.
+        {" "}Sticker cùng vùng sẽ thay thế nhau. Có thể kết hợp tóc, tai Frieren, sừng, râu và một hiệu ứng biến dạng. Gojo gồm tóc và bịt mắt; hói đầu cần chờ nhận diện vùng tóc.
       </p>
 
       {error && <p role="alert">{error}</p>}

@@ -4,7 +4,7 @@ import StickerPicker from "../components/stickers/StickerPicker";
 import { CvUiContext } from "../components/camera/CvUiContext";
 import useStickers from "../hooks/useStickers";
 import { FRAMES } from "../data/frames";
-import { STICKERS } from "../data/stickers";
+import { FACE_STICKERS as STICKERS } from "../data/stickers";
 import "../styles/stickers.css";
 import BoothIcon from "../components/layout/BoothIcon";
 import "../styles/booth-icons.css";
@@ -78,6 +78,8 @@ export default function BoothPage() {
     removeSticker,
     clearStickers,
     drawStickers,
+    renderFaceEffects,
+    getEffectNotice,
     getTrackingStatus,
     validateSnapshotTransforms,
     getDebugInfo,
@@ -497,6 +499,8 @@ export default function BoothPage() {
       resetCv,
       resetInteraction,
       drawStickers,
+      renderFaceEffects,
+      getEffectNotice,
       clearStickers,
       reportPhotos,
       getTrackingStatus,
@@ -509,6 +513,8 @@ export default function BoothPage() {
       resetCv,
       resetInteraction,
       drawStickers,
+      renderFaceEffects,
+      getEffectNotice,
       clearStickers,
       reportPhotos,
       getTrackingStatus,

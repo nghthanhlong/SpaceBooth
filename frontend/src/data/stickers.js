@@ -1,3 +1,4 @@
+import { FACE_EFFECTS } from './faceEffects';
 function svgUrl(content) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(content)}`;
 }
@@ -70,3 +71,4 @@ export const STICKERS = [
     `),
   },
 ];
+export const FACE_STICKERS = [...FACE_EFFECTS, ...STICKERS];
