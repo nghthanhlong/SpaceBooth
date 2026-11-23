@@ -4,6 +4,7 @@ import StickerPicker, { PlacedStickerList } from "../components/stickers/Sticker
 import { CvUiContext } from "../components/camera/CvUiContext";
 import useStickers from "../hooks/useStickers";
 import { confirmedStickerFace, faceAtPoint, faceBounds } from "../hooks/stickerTarget";
+import { drawStickerNametag } from "../utils/stickerNametag";
 import { FRAMES } from "../data/frames";
 import { FACE_STICKERS as STICKERS } from "../data/stickers";
 import "../styles/stickers.css";
@@ -534,20 +535,21 @@ export default function BoothPage() {
     const now = performance.now();
     if (now - lastFrameAtRef.current > 350) return;
     const gestureFace = confirmedStickerFace(data, now);
-    for (const [id, color, label] of [[gestureFace, "#a3e635", "Cử chỉ"], [mouseFaceRef.current, "#22d3ee", "Chuột"]]) {
-      const face = data?.faces.find(face => face.id === id && !face.stale);
-      if (!face) continue;
-      const box = faceBounds(face);
+    const mouseFace = data?.faces.find(face => face.id === mouseFaceRef.current && !face.stale);
+    if (mouseFace && mouseFace.id !== gestureFace) {
+      const box = faceBounds(mouseFace);
       ctx.save();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
+      ctx.strokeStyle = "#22d3ee";
+      ctx.fillStyle = "#22d3ee";
       ctx.lineWidth = 4;
       ctx.font = "18px sans-serif";
       ctx.strokeRect(box.left * size.width, box.top * size.height,
         (box.right - box.left) * size.width, (box.bottom - box.top) * size.height);
-      ctx.fillText(label, box.left * size.width, box.top * size.height - 8);
+      ctx.fillText("Chuột", box.left * size.width, box.top * size.height - 8);
       ctx.restore();
     }
+    const owner = data?.faces.find(face => face.id === gestureFace);
+    if (owner) drawStickerNametag(ctx, size, faceBounds(owner));
   }, []);
 
   const cvBridge = useMemo(
