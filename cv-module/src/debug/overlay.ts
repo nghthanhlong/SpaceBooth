@@ -25,7 +25,8 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: FrameInfo): void {
       ctx.fillRect(p.x * w - 1, p.y * h - 1, 2, 2);
     }
     const top = face.landmarks[10];
-    label(ctx, `face #${face.id}`, top.x * w, top.y * h - 10, COLORS.face);
+    const selected = f.controllerTarget.status === "confirmed" && f.controllerTarget.faceId === face.id;
+    label(ctx, `face #${face.id}${selected ? " (controller)" : ""}`, top.x * w, top.y * h - 10, selected ? COLORS.controller : COLORS.face);
   }
 
   for (const hand of f.hands) {

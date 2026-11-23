@@ -50,11 +50,11 @@ export interface TrackingConfig {
   warningTimeoutMs: number;
   /** Beyond 2000ms: show tracking-lost warning / pause countdown. */
   lostTimeoutMs: number;
-  /** Duration in ms for smooth interpolation when recovering tracking. */
+  /** @deprecated Same-ID recovery now attaches immediately without interpolation. */
   recoveryInterpolationDurationMs: number;
   /** Period in ms that tracking must remain stable before resuming countdown. */
   recoveryStabilityMs: number;
-  /** Maximum transform age in ms permitted for fallback snapshot rendering. */
+  /** Snapshot age ceiling, also capped by shortInterruptionMs to avoid frozen stickers. */
   maxSnapshotTransformAgeMs: number;
 }
 
@@ -88,6 +88,8 @@ export interface TrackedFace {
   landmarks: NormalizedLandmark[];
   /** True when not detected in the latest face pass; landmarks are from the last detection. */
   stale: boolean;
+  /** Timestamp of the actual face detection, not the UI repaint. */
+  lastSeen?: number;
 }
 
 export type ControllerState =
@@ -95,10 +97,18 @@ export type ControllerState =
   | { kind: "arming"; handId: number; progress: number }
   | { kind: "locked"; handId: number };
 
+export interface ControllerTarget {
+  status: "pending" | "confirmed" | "ambiguous" | "unavailable";
+  handId: number | null;
+  faceId: number | null;
+  observedAt: number | null;
+}
+
 export interface FrameStats {
   fps: number;
   gestureMs: number;
   faceMs: number;
+  poseMs: number;
   totalMs: number;
   faceUpdated: boolean;
 }
@@ -107,6 +117,7 @@ export interface FrameInfo {
   hands: TrackedHand[];
   faces: TrackedFace[];
   controller: ControllerState;
+  controllerTarget: ControllerTarget;
   pinching: boolean;
   pointing: boolean;
   /** Normalized cursor position on the stage, null when nobody is in control. */

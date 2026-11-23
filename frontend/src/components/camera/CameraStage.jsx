@@ -78,8 +78,6 @@ function formatSessionDate(timestamp) {
 
 export default function CameraStage({
   frame: _frame,
-  controllerMode = "cold",
-  onControllerModeChange,
   onPhaseChange,
 }) {
   const bridge = useContext(CvUiContext);
@@ -100,7 +98,6 @@ export default function CameraStage({
   const overlayRef = useRef(null);
   const dataRef = useRef(null);
   const engineRef = useRef(null);
-  const controllerModeRef = useRef(controllerMode);
   const frameAtRef = useRef(0);
   const progressRef = useRef(0);
   const mountedRef = useRef(false);
@@ -152,14 +149,6 @@ export default function CameraStage({
   }, []);
 
   useEffect(() => { onPhaseChange?.(phase); }, [phase, onPhaseChange]);
-
-  useEffect(() => {
-    controllerModeRef.current = controllerMode;
-    if (engineRef.current) {
-      engineRef.current.setControllerMode(controllerMode);
-    }
-  }, [controllerMode]);
-
   const updatePhotos = useCallback((next) => {
     photosRef.current = next;
     setPhotos(next);
@@ -305,7 +294,7 @@ export default function CameraStage({
     if (phaseRef.current !== "countdown") return;
 
     // Pre-snapshot validation: verify sticker transforms are safe
-    const validation = bridge?.validateSnapshotTransforms?.() ?? { valid: true };
+    const validation = bridge?.validateSnapshotTransforms?.(dataRef.current?.faces ?? []) ?? { valid: true };
     if (!validation.valid) {
       setFeedback(validation.reason || "Không thể chụp do mất dấu vị trí sticker.");
       countdownPausedRef.current = true;
@@ -403,8 +392,6 @@ export default function CameraStage({
 
       setReviewMessage("");
       setFeedback("Đã chụp ảnh. Bấm ô Ảnh vừa chụp để xem.");
-      engineRef.current?.setControllerMode("warm");
-      onControllerModeChange?.("warm");
       changePhase("live");
     }, "image/png");
   }, [
@@ -413,7 +400,6 @@ export default function CameraStage({
     changePhase,
     playCapture,
     updatePhotos,
-    onControllerModeChange,
   ]);
 
   useEffect(() => {
@@ -508,7 +494,6 @@ export default function CameraStage({
       },
     });
     engineRef.current = engine;
-    engine.setControllerMode(controllerModeRef.current);
 
     const unsubs = [
       engine.on("frame", (data) => {
@@ -628,11 +613,13 @@ export default function CameraStage({
         );
 
         if (phaseRef.current === "live") {
+          bridge?.drawFaceTarget?.(ctx, size, data);
           drawArming(ctx, size, data, progressRef.current);
         }
 
         // Tracking notice for live preview
         const trackingStatus = bridge?.getTrackingStatus?.();
+        engineRef.current?.setFaceTrackingActive(Boolean(trackingStatus?.hasPlacements));
         const effectNotice = bridge?.getEffectNotice?.();
         if (effectNotice) { setTrackingNotice(effectNotice); }
         else if (trackingStatus?.hasPlacements && phaseRef.current !== "review" && phaseRef.current !== "qr") {
@@ -653,7 +640,8 @@ export default function CameraStage({
         if (debugMode && now - lastDebug >= 200) {
           lastDebug = now;
           const info = bridge?.getDebugInfo?.();
-          setDebugData(info);
+          setDebugData({ ...info, stats: data?.stats, controllerTarget: data?.controllerTarget,
+            faces: faces.map(face => ({ id: face.id, stale: face.stale })) });
         }
       }
 
@@ -687,8 +675,6 @@ export default function CameraStage({
   function backToCamera() {
     if (savingRef.current) return;
     setReviewMessage("");
-    engineRef.current?.setControllerMode("warm");
-    onControllerModeChange?.("warm");
     changePhase("live");
   }
 
@@ -792,10 +778,6 @@ export default function CameraStage({
     setSavedSession(null);
     setReviewMessage("");
     const nextPhase = photosRef.current.length > 0 ? "review" : "live";
-    if (nextPhase === "live") {
-      engineRef.current?.setControllerMode("warm");
-      onControllerModeChange?.("warm");
-    }
     changePhase(nextPhase);
   }
 
@@ -894,11 +876,19 @@ export default function CameraStage({
               </p>
               <p>
                 <strong>Active Faces:</strong>{" "}
-                {dataRef.current?.faces?.filter((f) => !f.stale)?.length ?? 0} (IDs:{" "}
-                {dataRef.current?.faces
+                {debugData?.faces?.filter((f) => !f.stale)?.length ?? 0} (IDs:{" "}
+                {debugData?.faces
                   ?.map((f) => `#${f.id}${f.stale ? "(stale)" : ""}`)
                   .join(", ") || "none"}
                 )
+              </p>
+              <p>
+                <strong>FPS / Pose:</strong> {debugData?.stats?.fps?.toFixed(1) ?? "--"}
+                {" / "}{debugData?.stats?.poseMs?.toFixed(1) ?? "--"} ms
+              </p>
+              <p>
+                <strong>Sticker target:</strong> {debugData?.controllerTarget?.status ?? "pending"}
+                {" / "}{debugData?.controllerTarget?.faceId ?? "--"}
               </p>
               <p>
                 <strong>Attached Stickers:</strong>{" "}

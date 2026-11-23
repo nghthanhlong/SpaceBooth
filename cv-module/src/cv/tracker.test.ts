@@ -174,3 +174,28 @@ describe("IdTracker — ambiguity check", () => {
     expect(newIds).toHaveLength(1);
   });
 });
+
+describe("face track continuity", () => {
+  it("defers ambiguous detections without multiplying competing IDs", () => {
+    const tracker = new IdTracker<Point>(0.3, 2000, { deferAmbiguous: true });
+    const original = step(tracker, [pt(0.1, 0.5), pt(0.2, 0.5)], 0).seen;
+    for (const now of [33, 66, 99]) {
+      expect(step(tracker, [pt(0.15, 0.5)], now).seen).toEqual([]);
+      expect(tracker.alive().map(t => t.id)).toEqual(original);
+    }
+    expect(step(tracker, [pt(0.1, 0.5), pt(0.2, 0.5)], 132).seen).toEqual(original);
+  });
+
+  it("uses bounded motion prediction to retain the ID during fast movement", () => {
+    const tracker = new IdTracker<Point>(0.15, 2500, { predictionMs: 100, deferAmbiguous: true });
+    const [id] = step(tracker, [pt(0.1, 0.5)], 0).seen;
+    expect(step(tracker, [pt(0.2, 0.5)], 50).seen).toEqual([id]);
+    expect(step(tracker, [pt(0.4, 0.5)], 100).seen).toEqual([id]);
+  });
+
+  it("does not match an expired track to a new arrival at the same position", () => {
+    const tracker = new IdTracker<Point>(0.15, 2500);
+    const [oldId] = step(tracker, [pt(0.5, 0.5)], 0).seen;
+    expect(step(tracker, [pt(0.5, 0.5)], 2501).seen).not.toContain(oldId);
+  });
+});

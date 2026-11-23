@@ -2,6 +2,7 @@ import {
   FaceLandmarker,
   FilesetResolver,
   GestureRecognizer,
+  PoseLandmarker,
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
 import {
@@ -17,6 +18,7 @@ import { OneEuroFilter2D } from "./oneEuro";
 import { DEFAULT_PINCH, PinchDetector, type PinchConfig } from "./pinch";
 import { DEFAULT_POINT, PointDetector, type PointConfig } from "./point";
 import { IdTracker } from "./tracker";
+import { OwnershipResolver, DEFAULT_OWNERSHIP, type OwnershipConfig } from "./ownership";
 import type { CvEventMap, FrameSize, GestureName, Point, TrackedFace, TrackedHand } from "./types";
 
 export interface EngineConfig {
@@ -28,6 +30,10 @@ export interface EngineConfig {
   wasmPath: string;
   gestureModel: string;
   faceModel: string;
+  poseModel: string;
+  numPoses: number;
+  poseIntervalMs: number;
+  ownership: OwnershipConfig;
   /** Part of the camera frame that maps to the whole stage. Smaller box = less arm movement. */
   interactionBox: Box;
   cursorFilter: { minCutoff: number; beta: number };
@@ -44,6 +50,10 @@ export const DEFAULT_ENGINE: EngineConfig = {
   wasmPath: "/mediapipe/wasm",
   gestureModel: "/mediapipe/models/gesture_recognizer.task",
   faceModel: "/mediapipe/models/face_landmarker.task",
+  poseModel: "/mediapipe/models/pose_landmarker_lite.task",
+  numPoses: 4,
+  poseIntervalMs: 100,
+  ownership: DEFAULT_OWNERSHIP,
   interactionBox: { x0: 0.15, y0: 0.1, x1: 0.85, y1: 0.8 },
   cursorFilter: { minCutoff: 1.0, beta: 5.0 },
   pinch: DEFAULT_PINCH,
@@ -71,13 +81,17 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
   readonly cfg: EngineConfig;
   private gesture: GestureRecognizer | null = null;
   private face: FaceLandmarker | null = null;
+  private pose: PoseLandmarker | null = null;
+  private ownership: OwnershipResolver;
+  private lastPoseAt = -Infinity;
 
   private handTracker = new IdTracker<RawHand>(0.15, 2500);
   // maxMissedMs must be >= lostTimeoutMs (2000ms) in DEFAULT_TRACKING_CONFIG so that
-  // the face track stays alive long enough for useStickers to either recover it
-  // naturally or re-identify it by position (Task 1). With faceEveryNFrames=2 there
+  // the face track stays alive long enough for useStickers to recover the same ID.
+  // With faceEveryNFrames=2 there
   // is an extra ~33ms polling lag per frame, so 2500ms gives comfortable headroom.
-  private faceTracker = new IdTracker<NormalizedLandmark[]>(0.15, 2500);
+  private faceTracker = new IdTracker<NormalizedLandmark[]>(0.15, 2500, { predictionMs: 100, deferAmbiguous: true });
+  private faceTrackingActive = false;
   private controller: ControllerLock;
   private pinch: PinchDetector;
   private point: PointDetector;
@@ -99,6 +113,7 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
     super();
     this.cfg = { ...DEFAULT_ENGINE, ...cfg };
     this.controller = new ControllerLock(this.cfg.controller);
+    this.ownership = new OwnershipResolver(this.cfg.ownership);
     this.pinch = new PinchDetector(this.cfg.pinch);
     this.point = new PointDetector(this.cfg.point);
     this.cursorFilter = new OneEuroFilter2D(this.cfg.cursorFilter.minCutoff, this.cfg.cursorFilter.beta);
@@ -120,6 +135,16 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
           numFaces: this.cfg.numFaces,
         }),
       ]);
+      // Pose failure must not take down camera, gestures or photo capture.
+      try {
+        this.pose = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: this.cfg.poseModel, delegate: this.cfg.delegate },
+          runningMode: "VIDEO", numPoses: this.cfg.numPoses,
+          outputSegmentationMasks: false,
+        });
+      } catch (error) {
+        console.warn("Sticker ownership unavailable: could not load pose model", error);
+      }
     }
     this.running = true;
     this.scheduleNextFrame();
@@ -127,16 +152,23 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
 
   stop(): void {
     this.running = false;
+    this.releaseControl();
   }
 
   /** Gives up control on purpose (e.g. after the photo is taken). */
   releaseControl(): void {
+    this.ownership.reset();
     for (const e of this.controller.release()) this.emit(e.type, e.payload as never);
   }
 
   /** Configures lock acquisition options (e.g. bypass hold-time for warm re-entry). */
   acquireLock(options?: AcquireControllerOptions): void {
     this.controller.acquireLock(options);
+  }
+
+  /** Prioritize fresh face anchors while stickers are on screen. */
+  setFaceTrackingActive(active: boolean): void {
+    this.faceTrackingActive = active;
   }
 
   /** Sets controller lock mode to 'cold' (default hold time) or 'warm' (fast re-entry). */
@@ -187,7 +219,10 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
       .map((t) => ({ id: t.id, ...t.item }));
 
     // 2. Faces (every N frames, the last result is reused in between)
-    const faceUpdated = this.frameCount % this.cfg.faceEveryNFrames === 0;
+    // With no detected hands there is nothing to associate. Avoid spending GPU
+    // and main-thread time on pose while users lower their arms for the photo.
+    const poseUpdated = this.pose !== null && hands.length > 0 && now - this.lastPoseAt >= this.cfg.poseIntervalMs;
+    const faceUpdated = this.faceTrackingActive || poseUpdated || this.frameCount % this.cfg.faceEveryNFrames === 0;
     if (faceUpdated) {
       const f = face.detectForVideo(this.video, now);
       this.faceTracker.update(f.faceLandmarks.map(mirror), (lm) => lm[FACE.NOSE_TIP], now);
@@ -195,12 +230,29 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
       // position, so stickers stay on and can still be dropped onto them.
       this.faces = this.faceTracker
         .alive()
-        .map((t) => ({ id: t.id, landmarks: t.item, stale: t.lastSeen !== now }));
+        .map((t) => ({ id: t.id, landmarks: t.item, stale: t.lastSeen !== now, lastSeen: t.lastSeen }));
     }
     const t2 = performance.now();
 
+    if (hands.length === 0) this.ownership.observe([], this.faces, [], size, now);
+
+    if (poseUpdated) {
+      this.lastPoseAt = now;
+      try {
+        const poses = this.pose!.detectForVideo(this.video, now);
+        this.ownership.observe(hands, this.faces, poses.landmarks.map(mirror), size, now);
+      } catch (error) {
+        console.warn("Sticker ownership unavailable: pose inference failed", error);
+        this.pose?.close();
+        this.pose = null;
+        this.ownership.reset();
+      }
+    }
+    const t3 = performance.now();
+
     // 3. Who is in control?
     const { controller, events } = this.controller.update(hands, now);
+    if (events.some(e => e.type === "activate" || e.type === "release")) this.ownership.beginAcquisition();
     for (const e of events) this.emit(e.type, e.payload as never);
 
     const controllerId = controller?.id ?? null;
@@ -245,6 +297,7 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
       hands,
       faces: this.faces,
       controller: this.controller.publicState,
+      controllerTarget: this.ownership.target(this.controller.publicState, hands, this.faces, now, this.pose !== null),
       pinching: this.pinch.isPinching,
       pointing: this.point.isPointing,
       cursor,
@@ -255,6 +308,7 @@ export class CvEngine extends Emitter<CvEventMap> implements CvSource {
         fps: this.fps,
         gestureMs: t1 - t0,
         faceMs: faceUpdated ? t2 - t1 : 0,
+        poseMs: poseUpdated ? t3 - t2 : 0,
         totalMs: performance.now() - t0,
         faceUpdated,
       },
